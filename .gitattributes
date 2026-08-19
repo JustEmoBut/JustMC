@@ -1,0 +1,8 @@
+# The repo stores LF; autocrlf on Windows checkouts must not rewrite it.
+* text=auto eol=lf
+
+# Binary assets stay untouched.
+*.png binary
+*.ico binary
+*.icns binary
+*.woff2 binary
