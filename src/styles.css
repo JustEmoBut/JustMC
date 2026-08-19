@@ -1,0 +1,322 @@
+/* Archivo variable: one file covers the display and body roles through its
+   weight and width axes. Self-hosted because the app must not depend on the
+   network to render, and the CSP allows no external origins. */
+@font-face {
+  font-family: "Archivo";
+  src: url("./assets/archivo-latin.woff2") format("woff2");
+  font-weight: 400 800;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Archivo";
+  src: url("./assets/archivo-latin-ext.woff2") format("woff2");
+  font-weight: 400 800;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Deepslate: the palette is read off the material the game is made of -- a
+   deepslate ground, stone panels, an inset well for anything you put things
+   into, and emerald for "this is yours" and "this is the action". Colour is
+   never decorative here; if something is green it is selected or it is a verb. */
+:root {
+  --bg: #14161a;
+  --bg-raised: #1b1e24;
+  --bg-panel: #212630;
+  --bg-inset: #0e1013;
+  --border: #2a2f37;
+  --border-strong: #3b424d;
+  --text: #e4e7ec;
+  --text-dim: #98a0ab;
+  --text-faint: #69717c;
+
+  --accent: #3fb27a;
+  --accent-lit: #58cf95;
+  --accent-ink: #04170d;
+  --danger: #d9705f;
+  /* Reserved for one thing only: a mod with a newer build waiting. */
+  --xp: #d6a34a;
+
+  --radius: 5px;
+  --radius-sm: 3px;
+  --shadow: 0 18px 50px rgb(0 0 0 / 0.55), 0 2px 6px rgb(0 0 0 / 0.4);
+
+  /* The bevel is the whole visual language: one pixel of light on top, one of
+     shadow underneath. Every raised surface wears it, every well wears it
+     inverted. It is what keeps the app from reading as flat colour fields. */
+  --bevel: inset 0 1px 0 rgb(255 255 255 / 0.055), 0 1px 0 rgb(0 0 0 / 0.35);
+  --well: inset 0 1px 2px rgb(0 0 0 / 0.55), inset 0 0 0 1px rgb(0 0 0 / 0.25);
+
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+
+  color-scheme: dark;
+  font-family: Archivo, "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* A dither of noise over the whole window. Flat dark UI reads as a void; the
+   game this launches has visible grain in every surface it draws. Generated
+   rather than shipped so it costs no asset and no network. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.16'/%3E%3C/svg%3E");
+}
+
+#app {
+  height: 100vh;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Archivo carries a width axis, so the utility voice of the app -- section
+   headers, eyebrows, the rail -- is set condensed and small rather than in a
+   second typeface. */
+.eyebrow {
+  font-size: 10.5px;
+  font-weight: 700;
+  font-stretch: 78%;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+button {
+  font: inherit;
+  font-family: Archivo, "Segoe UI", system-ui, sans-serif;
+  color: inherit;
+  border: 1px solid var(--border-strong);
+  background: linear-gradient(var(--bg-panel), var(--bg-raised));
+  box-shadow: var(--bevel);
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, opacity 0.12s, color 0.12s,
+    transform 0.06s;
+}
+
+button:hover:not(:disabled) {
+  background: linear-gradient(#2a3040, #232833);
+  border-color: #4a5260;
+}
+
+/* Buttons press in rather than lighting up: the affordance the game's own
+   controls use. */
+button:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+button.primary {
+  background: linear-gradient(var(--accent-lit), var(--accent));
+  border-color: #2f8d5f;
+  color: var(--accent-ink);
+  font-weight: 650;
+  box-shadow: var(--bevel), 0 0 18px rgb(63 178 122 / 0.18);
+}
+
+button.primary:hover:not(:disabled) {
+  background: linear-gradient(#6ee0a6, var(--accent-lit));
+  border-color: var(--accent-lit);
+}
+
+button.ghost {
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--text-dim);
+}
+
+button.ghost:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.06);
+  border-color: transparent;
+  color: var(--text);
+}
+
+button.danger {
+  color: var(--danger);
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+
+button.danger:hover:not(:disabled) {
+  background: rgb(217 112 95 / 0.12);
+  border-color: rgb(217 112 95 / 0.32);
+}
+
+input:not([type="checkbox"]),
+select,
+textarea {
+  font: inherit;
+  font-family: Archivo, "Segoe UI", system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg-inset);
+  box-shadow: var(--well);
+  border: 1px solid #1a1e24;
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  width: 100%;
+  user-select: text;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Checkboxes are slots too: a small well that fills with the accent when it
+   holds something. Styled once here so every one in the app matches. */
+input[type="checkbox"] {
+  appearance: none;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #1a1e24;
+  border-radius: 3px;
+  background: var(--bg-inset);
+  box-shadow: var(--well);
+  cursor: pointer;
+}
+
+input[type="checkbox"]:hover {
+  border-color: var(--border-strong);
+}
+
+input[type="checkbox"]:checked {
+  background: linear-gradient(var(--accent-lit), var(--accent));
+  border-color: #2f8d5f;
+}
+
+input[type="checkbox"]:checked::after {
+  content: "";
+  display: block;
+  width: 4px;
+  height: 8px;
+  margin: 0 auto;
+  border: solid var(--accent-ink);
+  border-width: 0 2px 2px 0;
+  transform: rotate(42deg) translate(-1px, -1px);
+}
+
+label {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  font-stretch: 78%;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 7px;
+}
+
+.field + .field {
+  margin-top: 16px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.muted {
+  color: var(--text-dim);
+}
+
+.faint {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+/* Technical readouts are set in mono with tabular figures so columns of
+   numbers stay aligned as they change. */
+.data {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  letter-spacing: -0.01em;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #39404a;
+  border-radius: 0;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #525963;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
