@@ -1,5 +1,12 @@
 <script lang="ts">
-  import { api, errorMessage, loaderName, type Loader, type ManifestVersion } from "./api";
+  import {
+    api,
+    errorMessage,
+    loaderName,
+    type FabricLoader,
+    type Loader,
+    type ManifestVersion,
+  } from "./api";
   import Modal from "./Modal.svelte";
   import { task } from "./task.svelte";
   import { notify } from "./toast.svelte";
@@ -18,6 +25,10 @@
   /** Loader support for the selected version: null while in flight, "unknown"
       when the meta server could not be reached. */
   let loaderOk = $state<boolean | "unknown" | null>(null);
+  /** Builds of the chosen loader for the chosen Minecraft version. */
+  let loaders = $state<FabricLoader[]>([]);
+  /** Empty means "whatever install time resolves", which is the usual answer. */
+  let loaderVersion = $state("");
 
   const shown = $derived(
     versions.filter((v) => showSnapshots || v.type === "release")
@@ -42,13 +53,22 @@
     const chosen = loader;
     if (chosen === "vanilla" || !version) {
       loaderOk = null;
+      loaders = [];
       return;
     }
     loaderOk = null;
+    // A build is only listed for the versions it supports, so a pin cannot
+    // survive a change of either.
+    loaders = [];
+    loaderVersion = "";
     let current = true;
     api
       .listLoaders(version, chosen)
-      .then((list) => current && (loaderOk = list.length > 0))
+      .then((list) => {
+        if (!current) return;
+        loaders = list;
+        loaderOk = list.length > 0;
+      })
       // A blip on the meta server must not read as "unsupported"; let the user
       // through and leave the real error to install time.
       .catch(() => current && (loaderOk = "unknown"));
@@ -98,7 +118,7 @@
   async function create() {
     busy = true;
     try {
-      await api.createInstance(name, selected, loader);
+      await api.createInstance(name, selected, loader, loaderVersion || null);
       await oncreated();
       onclose();
     } catch (e) {
@@ -136,6 +156,20 @@
       {/each}
     </div>
   </div>
+
+  {#if loader !== "vanilla" && loaders.length}
+    <div class="field">
+      <label for="loader-version">{loaderName(loader)} loader</label>
+      <select id="loader-version" bind:value={loaderVersion}>
+        <!-- Fabric flags the one build it recommends; Quilt flags nothing and
+             ships betas as its normal channel, so its default is the newest. -->
+        <option value="">{loader === "quilt" ? "Latest" : "Latest stable"}</option>
+        {#each loaders as l (l.version)}
+          <option value={l.version}>{l.version}{l.stable ? " · recommended" : ""}</option>
+        {/each}
+      </select>
+    </div>
+  {/if}
 
   {#if loader !== "vanilla" && loaderOk === false}
     <p class="warn">

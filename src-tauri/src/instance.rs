@@ -160,7 +160,14 @@ pub fn unique_id(name: &str) -> String {
     id
 }
 
-pub async fn create(name: &str, mc_version: &str, loader: Loader) -> Result<Instance> {
+/// `loader_version` empty means "resolve it at install time", which is what
+/// the picker's default and every vanilla instance send.
+pub async fn create(
+    name: &str,
+    mc_version: &str,
+    loader: Loader,
+    loader_version: &str,
+) -> Result<Instance> {
     let name = name.trim();
     if name.is_empty() {
         return Err(Error::msg("Instance name cannot be empty."));
@@ -173,7 +180,12 @@ pub async fn create(name: &str, mc_version: &str, loader: Loader) -> Result<Inst
         name: name.to_string(),
         mc_version: mc_version.to_string(),
         loader,
-        loader_version: String::new(),
+        // A pinned build is only meaningful with a loader to pin it to.
+        loader_version: if loader == Loader::Vanilla {
+            String::new()
+        } else {
+            loader_version.to_string()
+        },
         memory_mb: defaults.memory_mb,
         java_path: defaults.java_path,
         jvm_args: defaults.jvm_args,

@@ -133,3 +133,23 @@ async fn duplicate_copies_world_data_but_not_natives() {
     // The config on disk carries the new id, not the source's.
     assert_eq!(instance::get(&copy.id).await.unwrap().id, copy.id);
 }
+
+/// The New Instance dialog can pin a loader build; vanilla has none to pin.
+#[tokio::test]
+async fn a_pinned_loader_build_survives_creation_unless_there_is_no_loader() {
+    let dir = std::env::temp_dir().join(format!("jl-create-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    unsafe { std::env::set_var("JUSTLAUNCHER_HOME", &dir) };
+
+    let pinned = instance::create("Pinned", "1.21.1", Loader::Quilt, "0.24.0").await.unwrap();
+    assert_eq!(pinned.loader_version, "0.24.0");
+    // Read back, not just returned: the pin has to reach disk to survive.
+    assert_eq!(instance::get(&pinned.id).await.unwrap().loader_version, "0.24.0");
+
+    // Empty is the picker's default and means "resolve it at install time".
+    let latest = instance::create("Latest", "1.21.1", Loader::Fabric, "").await.unwrap();
+    assert!(latest.loader_version.is_empty());
+
+    let vanilla = instance::create("Plain", "1.21.1", Loader::Vanilla, "0.24.0").await.unwrap();
+    assert!(vanilla.loader_version.is_empty(), "vanilla has no loader to pin");
+}

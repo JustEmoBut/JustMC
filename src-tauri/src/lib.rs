@@ -55,8 +55,14 @@ async fn list_instances() -> Vec<Instance> {
 }
 
 #[tauri::command]
-async fn create_instance(name: String, mc_version: String, loader: Loader) -> Result<Instance> {
-    instance::create(&name, &mc_version, loader).await
+async fn create_instance(
+    name: String,
+    mc_version: String,
+    loader: Loader,
+    loader_version: Option<String>,
+) -> Result<Instance> {
+    instance::create(&name, &mc_version, loader, loader_version.as_deref().unwrap_or_default())
+        .await
 }
 
 #[tauri::command]

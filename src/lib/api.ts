@@ -142,8 +142,13 @@ export const api = {
     invoke<FabricLoader[]>("list_loaders", { mcVersion, loader }),
 
   listInstances: () => invoke<Instance[]>("list_instances"),
-  createInstance: (name: string, mcVersion: string, loader: Loader) =>
-    invoke<Instance>("create_instance", { name, mcVersion, loader }),
+  /** `loaderVersion` null means "resolve the loader build at install time". */
+  createInstance: (
+    name: string,
+    mcVersion: string,
+    loader: Loader,
+    loaderVersion: string | null
+  ) => invoke<Instance>("create_instance", { name, mcVersion, loader, loaderVersion }),
   updateInstance: (instance: Instance) => invoke<void>("update_instance", { instance }),
   deleteInstance: (id: string) => invoke<void>("delete_instance", { id }),
   openInstanceFolder: (id: string) => invoke<void>("open_instance_folder", { id }),

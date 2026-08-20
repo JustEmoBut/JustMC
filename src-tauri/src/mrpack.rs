@@ -109,9 +109,7 @@ pub async fn import(app: &AppHandle, archive: &Path) -> Result<Instance> {
     .map_err(|e| Error::msg(e.to_string()))??;
 
     let (mc_version, loader, loader_version) = loader_of(&index.dependencies)?;
-    let mut inst = instance::create(&index.name, &mc_version, loader).await?;
-    inst.loader_version = loader_version;
-    inst.save().await?;
+    let inst = instance::create(&index.name, &mc_version, loader, &loader_version).await?;
 
     // From here on a failure leaves a half-built instance, so remove it rather
     // than leaving something that looks playable and is not.

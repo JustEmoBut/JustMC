@@ -19,7 +19,8 @@ Chromium is bundled.
 
 - Microsoft account sign-in (OAuth device code flow) and offline accounts
 - Full vanilla version list, releases and snapshots, back to the oldest versions
-- Fabric and Quilt loaders, with the loader version pinnable per instance
+- Fabric and Quilt loaders, with the loader build pinnable when an instance is
+  created and afterwards
 - Create, configure, delete instances; per-instance memory, Java and JVM args
 - Parallel downloading with SHA-1 verification, resumable across runs, live
   transfer rate and ETA
