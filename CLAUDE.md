@@ -234,6 +234,21 @@ CurseForge is not a second provider and cannot become one cheaply: its API needs
 a per-launcher key that an open source build cannot ship, and some authors
 forbid third-party downloads outright.
 
+### Logs (`logs.rs`)
+
+Three directories hold something the user calls "the log", and `Source` is the
+only thing that separates them: `<instance>/logs` (what the launcher captured,
+truncated per launch), `.minecraft/logs` (the game's own, everything but
+`latest.log` gzipped) and `.minecraft/crash-reports`. The frontend sends a
+`source` plus a bare file name, never a path — `checked_name` and an extension
+check guard the join, exactly like the mods folder. The directory is the
+database here too: nothing is indexed.
+
+Reading tails the last 2000 lines, the same cap the live view applies, because
+rendering a whole session is what makes launcher log views crawl. Old logs
+carry the session token just like the live one, so they are shown in the same
+panel and leave through the same `redact` chokepoint.
+
 ### Downloads (`download.rs`)
 
 Everything fetched goes through `Job { url, path, sha1, size }`.

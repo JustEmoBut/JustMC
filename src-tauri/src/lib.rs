@@ -10,6 +10,7 @@ pub mod launch;
 pub mod mojang;
 pub mod mrpack;
 
+pub mod logs;
 pub mod mods;
 pub mod modrinth;
 
@@ -195,6 +196,18 @@ async fn launch_instance(app: tauri::AppHandle, id: String, account_id: String) 
 #[tauri::command]
 fn stop_instance(id: String) -> bool {
     launch::stop(&id)
+}
+
+// ------------------------------------------------------- logs and crash reports
+
+#[tauri::command]
+async fn list_logs(id: String) -> Result<Vec<logs::LogFile>> {
+    logs::list(&id).await
+}
+
+#[tauri::command]
+async fn read_log(id: String, source: logs::Source, file: String) -> Result<Vec<String>> {
+    logs::read(&id, source, &file).await
 }
 
 // ------------------------------------------------- mods, resource and shaders
@@ -482,6 +495,8 @@ pub fn run() {
             install_instance,
             launch_instance,
             stop_instance,
+            list_logs,
+            read_log,
             list_mods,
             set_mod_enabled,
             delete_mod,

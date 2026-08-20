@@ -1,7 +1,28 @@
 <script lang="ts">
   import { redact } from "./redact";
+  import type { LogFile } from "./api";
 
-  let { lines, onclose }: { lines: string[]; onclose: () => void } = $props();
+  let {
+    lines,
+    logs,
+    choice,
+    onchoose,
+    onclose,
+  }: {
+    lines: string[];
+    /** Past logs and crash reports of the selected instance, newest first. */
+    logs: LogFile[];
+    /** "" is the live output of this session; otherwise "source/file". */
+    choice: string;
+    onchoose: (choice: string) => void;
+    onclose: () => void;
+  } = $props();
+
+  function label(log: LogFile) {
+    const when = new Date(log.modified * 1000).toLocaleString();
+    const what = log.source === "crash" ? "Crash report" : log.file;
+    return `${what} — ${when}`;
+  }
 
   async function copy() {
     // Never put the raw log on the clipboard: it contains the session token,
@@ -37,6 +58,16 @@
 <section class="panel">
   <header>
     <h3>Game output</h3>
+    <select
+      value={choice}
+      onchange={(e) => onchoose(e.currentTarget.value)}
+      aria-label="Which log to show"
+    >
+      <option value="">Live output</option>
+      {#each logs as log (log.source + "/" + log.file)}
+        <option value="{log.source}/{log.file}">{label(log)}</option>
+      {/each}
+    </select>
     <span class="faint">{lines.length} lines</span>
     <span class="spacer"></span>
     <button class="ghost" onclick={copy} title="Copies with tokens and usernames removed">
@@ -88,6 +119,10 @@
     user-select: text;
     white-space: pre-wrap;
     word-break: break-word;
+  }
+
+  select {
+    max-width: 320px;
   }
 
   .err {

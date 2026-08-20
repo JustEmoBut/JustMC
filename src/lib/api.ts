@@ -73,6 +73,17 @@ export interface FabricLoader {
   stable: boolean;
 }
 
+/** Which directory a log came from; also how the backend finds it again. */
+export type LogSource = "launcher" | "game" | "crash";
+
+export interface LogFile {
+  file: string;
+  source: LogSource;
+  size: number;
+  /** Unix seconds. */
+  modified: number;
+}
+
 export interface ModFile {
   file: string;
   name: string;
@@ -171,6 +182,12 @@ export const api = {
     invoke<Account>("complete_microsoft_login", { code }),
   addOfflineAccount: (name: string) => invoke<Account>("add_offline_account", { name }),
   removeAccount: (id: string) => invoke<void>("remove_account", { id }),
+
+  /** Past logs and crash reports of an instance, newest first. */
+  listLogs: (id: string) => invoke<LogFile[]>("list_logs", { id }),
+  /** The tail of one of them, decompressed when gzipped. */
+  readLog: (id: string, source: LogSource, file: string) =>
+    invoke<string[]>("read_log", { id, source, file }),
 
   openModsFolder: (id: string, kind: ModKind) =>
     invoke<void>("open_mods_folder", { id, kind }),

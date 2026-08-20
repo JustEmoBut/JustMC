@@ -9,6 +9,7 @@
     loaderName,
     type Account,
     type Instance,
+    type LogFile,
     type ModKind,
     type Settings as SettingsData,
   } from "./lib/api";
@@ -56,6 +57,15 @@
   let busy = $state<Record<string, string>>({});
   let log = $state<string[]>([]);
   let showLog = $state(false);
+  /**
+   * Past logs and crash reports of the selected instance. Read when the panel
+   * opens rather than kept fresh: the folder only changes when a game runs,
+   * and re-reading it on every render would be a directory scan per frame.
+   */
+  let logFiles = $state<LogFile[]>([]);
+  /** "" is the live output; otherwise "source/file" out of `logFiles`. */
+  let logChoice = $state("");
+  let logFileLines = $state<string[]>([]);
   let dragging = $state(false);
   let menu = $state<{ x: number; y: number; items: MenuItem[] } | null>(null);
   let deleting = $state<Instance | null>(null);
@@ -84,6 +94,32 @@
     accounts = await api.listAccounts();
     if (!accounts.some((a) => a.id === selectedAccount)) {
       selectedAccount = accounts[0]?.id ?? "";
+    }
+  }
+
+  // The list is per instance, so it is re-read whenever the panel opens or the
+  // selection moves; the choice resets to live output because a file from the
+  // previous instance is not in the new list.
+  $effect(() => {
+    const id = selected?.id;
+    if (!showLog || !id) return;
+    logChoice = "";
+    logFileLines = [];
+    api
+      .listLogs(id)
+      .then((files) => (logFiles = files))
+      .catch((e) => notify(errorMessage(e), "error"));
+  });
+
+  async function openLog(choice: string) {
+    logChoice = choice;
+    if (!choice || !selected) return;
+    const [source, ...rest] = choice.split("/");
+    try {
+      logFileLines = await api.readLog(selected.id, source as LogFile["source"], rest.join("/"));
+    } catch (e) {
+      notify(errorMessage(e), "error");
+      logChoice = "";
     }
   }
 
@@ -431,7 +467,13 @@
   </div>
 
   {#if showLog}
-    <LogView lines={log} onclose={() => (showLog = false)} />
+    <LogView
+      lines={logChoice ? logFileLines : log}
+      logs={logFiles}
+      choice={logChoice}
+      onchoose={openLog}
+      onclose={() => (showLog = false)}
+    />
   {/if}
 
   <div class="status data">
