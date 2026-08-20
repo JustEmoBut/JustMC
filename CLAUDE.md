@@ -264,6 +264,28 @@ scrolling container in the app pairs it with `overflow-x: hidden`; content that
 genuinely cannot wrap (code blocks, tables) scrolls inside its own box, and a
 table needs `display: block` before it will.
 
+### The CSP, and why `img-src` is wide
+
+`default-src 'self'` governs everything the app loads; the directives that would
+otherwise inherit it are pinned to `'none'` (objects, frames, workers, media,
+`base-uri`, `form-action`) because the app uses none of them.
+
+`img-src` is deliberately `https:` rather than an allowlist. The images the app
+itself loads *are* a short list — `cdn.modrinth.com` for every project icon and
+`api.mineatar.io` for avatars — but a Modrinth description is author-written
+markdown and embeds images from wherever the author put them: a scan of 75
+projects found 20+ hosts (imgur, raw.githubusercontent, jsdelivr, catbox,
+personal domains). A fixed list cannot cover that, and CSP cannot tell a
+description image from an app one. The accepted risk is a tracking pixel in a
+description learning the reader's IP; there is no script or style consequence,
+since those stay on `'self'`. Killing it means dropping `img` from
+`markdown.ts`'s allowed tags, which costs the screenshots people choose a
+shader by — a product decision, not a config tweak.
+
+Do not add an explicit `connect-src`. Tauri's IPC rides a custom protocol whose
+origin differs per platform, and the raw-bytes commands go the same way;
+`default-src 'self'` already covers it.
+
 ### Anything leaving the app gets redacted
 
 Minecraft prints `(Session ID is token:...)` to stdout. `src/lib/redact.ts` is
