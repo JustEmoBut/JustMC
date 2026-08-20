@@ -1,7 +1,7 @@
 <script lang="ts">
   /**
    * A small stroke icon set, inline rather than from a library: the app needs
-   * eight glyphs and an icon package would be a dependency and a bundle for it.
+   * a handful of glyphs and an icon package would be a dependency and a bundle for it.
    */
   export type IconName =
     | "play"
@@ -13,7 +13,9 @@
     | "sliders"
     | "trash"
     | "user"
-    | "search";
+    | "search"
+    | "copy"
+    | "gear";
 
   let { name, size = 15 }: { name: IconName; size?: number } = $props();
 </script>
@@ -50,6 +52,14 @@
   {:else if name === "user"}
     <circle cx="8" cy="5.6" r="2.5" />
     <path d="M3 13.4c0-2.4 2.2-3.8 5-3.8s5 1.4 5 3.8" />
+  {:else if name === "gear"}
+    <circle cx="8" cy="8" r="2.2" />
+    <path
+      d="M8 1.8v1.6M8 12.6v1.6M2.6 8H1M15 8h-1.6M4.2 4.2 3 3M13 13l-1.2-1.2M11.8 4.2 13 3M3 13l1.2-1.2"
+    />
+  {:else if name === "copy"}
+    <rect x="5.5" y="5.5" width="8" height="8" rx="1.2" />
+    <path d="M10.5 3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1" />
   {:else if name === "search"}
     <circle cx="7.2" cy="7.2" r="4.2" />
     <path d="m10.4 10.4 3 3" />

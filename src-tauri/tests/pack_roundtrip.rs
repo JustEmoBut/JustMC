@@ -25,6 +25,7 @@ fn sample() -> Instance {
         java_path: String::new(),
         jvm_args: "-XX:+UseG1GC".into(),
         last_played: 1_700_000_000,
+        play_time: 7_200,
         installed: true,
     }
 }
@@ -97,4 +98,38 @@ async fn importing_something_that_is_not_an_instance_is_rejected() {
 
     let err = pack::import(&bogus).unwrap_err().to_string();
     assert!(err.contains("instance.json"), "unhelpful error: {err}");
+}
+
+#[tokio::test]
+async fn duplicate_copies_world_data_but_not_natives() {
+    let dir = std::env::temp_dir().join(format!("jl-dup-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::env::set_var("JUSTLAUNCHER_HOME", &dir);
+
+    let original = sample();
+    original.save().await.unwrap();
+    let saves = original.game_dir().join("saves/world");
+    std::fs::create_dir_all(&saves).unwrap();
+    std::fs::write(saves.join("level.dat"), b"world data").unwrap();
+    std::fs::create_dir_all(original.natives_dir()).unwrap();
+    std::fs::write(original.natives_dir().join("lwjgl.dll"), b"native").unwrap();
+
+    let copy = pack::duplicate(&original, "My Pack Copy").unwrap();
+
+    assert_ne!(copy.id, original.id);
+    assert_eq!(copy.name, "My Pack Copy");
+    assert_eq!(copy.memory_mb, original.memory_mb);
+    assert_eq!(copy.jvm_args, original.jvm_args);
+    assert_eq!(copy.last_played, 0);
+    // A copy has not been played; the source's hours are not the copy's.
+    assert_eq!(copy.play_time, 0);
+    assert!(!copy.installed, "the copy has no natives yet");
+    assert_eq!(
+        std::fs::read(copy.game_dir().join("saves/world/level.dat")).unwrap(),
+        b"world data"
+    );
+    assert!(!copy.natives_dir().exists(), "natives were copied");
+    assert!(original.dir().exists(), "the source instance was disturbed");
+    // The config on disk carries the new id, not the source's.
+    assert_eq!(instance::get(&copy.id).await.unwrap().id, copy.id);
 }

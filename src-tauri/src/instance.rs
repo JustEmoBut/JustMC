@@ -4,6 +4,7 @@
 
 use crate::error::{Error, Result};
 use crate::paths;
+use crate::settings;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -38,13 +39,27 @@ pub struct Instance {
     /// Unix seconds of the last launch; 0 if never played.
     #[serde(default)]
     pub last_played: u64,
+    /// Seconds the game has run in this instance, across every launch.
+    #[serde(default)]
+    pub play_time: u64,
     /// Whether the install step has completed at least once.
     #[serde(default)]
     pub installed: bool,
 }
 
+/// Only for an instance.json that predates the field; a new instance takes
+/// its heap from the launcher settings instead.
 fn default_memory() -> u32 {
     4096
+}
+
+/// Unix seconds now. The clock can disagree with itself across a launch, so
+/// every caller has to cope with 0 rather than trusting the difference.
+pub fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 impl Instance {
@@ -114,16 +129,20 @@ pub async fn create(name: &str, mc_version: &str, loader: Loader) -> Result<Inst
     if name.is_empty() {
         return Err(Error::msg("Instance name cannot be empty."));
     }
+    // What the user set as the default for new instances, not a constant: a
+    // flat 4 GB is too much on a small machine and too little on a large one.
+    let defaults = settings::load().await;
     let instance = Instance {
         id: unique_id(name),
         name: name.to_string(),
         mc_version: mc_version.to_string(),
         loader,
         loader_version: String::new(),
-        memory_mb: default_memory(),
-        java_path: String::new(),
-        jvm_args: String::new(),
+        memory_mb: defaults.memory_mb,
+        java_path: defaults.java_path,
+        jvm_args: defaults.jvm_args,
         last_played: 0,
+        play_time: 0,
         installed: false,
     };
     tokio::fs::create_dir_all(instance.game_dir()).await?;
@@ -193,6 +212,7 @@ mod tests {
             java_path: String::new(),
             jvm_args: String::new(),
             last_played: 0,
+            play_time: 0,
             installed: false,
         };
         assert_eq!(i.version_id(), "1.21");

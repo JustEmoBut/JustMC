@@ -1,4 +1,4 @@
-import { api, errorMessage, type Instance } from "./api";
+import { api, errorMessage, type Instance, type ModKind } from "./api";
 import { notify } from "./toast.svelte";
 
 export async function openFolder(instance: Instance) {
@@ -9,9 +9,9 @@ export async function openFolder(instance: Instance) {
   }
 }
 
-export async function openModsFolder(instance: Instance) {
+export async function openModsFolder(instance: Instance, kind: ModKind = "mods") {
   try {
-    await api.openModsFolder(instance.id);
+    await api.openModsFolder(instance.id, kind);
   } catch (e) {
     notify(errorMessage(e), "error");
   }
@@ -22,6 +22,15 @@ export async function exportInstance(instance: Instance) {
     await api.exportInstance(instance.id);
     notify(`Exported ${instance.name}.`);
     await api.openExportsFolder();
+  } catch (e) {
+    notify(errorMessage(e), "error");
+  }
+}
+
+export async function duplicateInstance(instance: Instance) {
+  try {
+    const copy = await api.duplicateInstance(instance.id, `${instance.name} (copy)`);
+    notify(`Created ${copy.name}.`);
   } catch (e) {
     notify(errorMessage(e), "error");
   }

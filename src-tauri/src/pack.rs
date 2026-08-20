@@ -79,6 +79,46 @@ pub fn export(instance: &Instance) -> Result<PathBuf> {
     Ok(dest)
 }
 
+/// Copy an instance into a new one, worlds, configs and mods included.
+///
+/// Reuses the export filter, so the copy leaves out natives and logs for the
+/// same reasons the archive does — both are rebuilt on the next launch.
+pub fn duplicate(source: &Instance, name: &str) -> Result<Instance> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(Error::msg("Instance name cannot be empty."));
+    }
+    let dir = source.dir();
+    if !dir.join(CONFIG_NAME).exists() {
+        return Err(Error::msg("Instance directory is missing its config."));
+    }
+
+    let mut copy = source.clone();
+    copy.id = instance::unique_id(name);
+    copy.name = name.to_string();
+    copy.last_played = 0;
+    copy.play_time = 0;
+    // Natives were not copied, so the copy needs a verify pass before it runs.
+    copy.installed = false;
+    let dest = copy.dir();
+
+    for (path, relative) in collect(&dir)? {
+        if relative == Path::new(CONFIG_NAME) {
+            continue;
+        }
+        let out = dest.join(&relative);
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(&path, &out)?;
+    }
+
+    std::fs::create_dir_all(copy.game_dir())?;
+    // Written last so a half-copied directory is not a listable instance.
+    std::fs::write(dest.join(CONFIG_NAME), serde_json::to_vec_pretty(&copy)?)?;
+    Ok(copy)
+}
+
 /// The prefix inside the archive that contains `instance.json`.
 ///
 /// People zip an instance folder in two shapes: with the config at the root, or

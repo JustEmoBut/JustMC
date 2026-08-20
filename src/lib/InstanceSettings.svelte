@@ -7,6 +7,7 @@
     type FabricLoader,
     type Instance,
     type JavaInstall,
+    type ManifestVersion,
   } from "./api";
   import Modal from "./Modal.svelte";
   import { notify } from "./toast.svelte";
@@ -28,6 +29,10 @@
   /** Physical RAM in MB; the slider must not offer more than the machine has. */
   let ramMb = $state<number | null>(null);
   let loaders = $state<FabricLoader[]>([]);
+  let versions = $state<ManifestVersion[]>([]);
+  // Start the filter open when the instance itself is on a snapshot, so its
+  // own version is visible in the list without a click.
+  let showSnapshots = $state(untrack(() => !/^\d+\.\d+(\.\d+)?$/.test(instance.mc_version)));
   let confirmingDelete = $state(false);
   let exporting = $state(false);
 
@@ -45,16 +50,43 @@
   }
 
   const memoryMax = $derived(Math.min(16384, ramMb ?? 16384));
+  const changedVersion = $derived(draft.mc_version !== instance.mc_version);
+  // Keep the instance's own version listed even when the snapshot filter would
+  // hide it, so opening the dialog never silently reselects something else.
+  const shownVersions = $derived(
+    versions.filter((v) => showSnapshots || v.type === "release" || v.id === instance.mc_version)
+  );
+  const fabricUnsupported = $derived(
+    draft.loader === "fabric" && changedVersion && loaders.length === 0
+  );
 
   $effect(() => {
     api.listJava().then((list) => (javas = list));
     api.systemMemoryMb().then((mb) => (ramMb = mb));
-    if (instance.loader === "fabric") {
-      api
-        .listFabricLoaders(instance.mc_version)
-        .then((list) => (loaders = list))
-        .catch(() => (loaders = []));
-    }
+    api.listVersions().then((list) => (versions = list.versions)).catch(() => (versions = []));
+  });
+
+  // The loader list is per Minecraft version, so it has to follow the draft,
+  // not the saved instance: picking a version Fabric never supported must show
+  // up here rather than at install time.
+  $effect(() => {
+    if (draft.loader !== "fabric") return;
+    const version = draft.mc_version;
+    let current = true;
+    api
+      .listFabricLoaders(version)
+      .then((list) => current && (loaders = list))
+      .catch(() => current && (loaders = []));
+    return () => (current = false);
+  });
+
+  // A loader build is only listed for the versions it supports, so a pinned one
+  // cannot survive a version change.
+  $effect(() => {
+    draft.mc_version;
+    untrack(() => {
+      if (draft.mc_version !== instance.mc_version) draft.loader_version = "";
+    });
   });
 
   // A machine can shrink (or the setting can arrive from an exported instance),
@@ -73,6 +105,15 @@
     }
   }
 
+  /** Same wording as the side panel, so one instance reads the same in both. */
+  function playTime(seconds: number) {
+    if (!seconds) return "never played";
+    if (seconds < 60) return "played under a minute";
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `played ${minutes} min`;
+    return `played ${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+  }
+
   async function remove() {
     await actions.deleteInstance(instance);
     await onsaved();
@@ -84,6 +125,27 @@
   <div class="field">
     <label for="s-name">Name</label>
     <input id="s-name" bind:value={draft.name} />
+  </div>
+
+  <div class="field">
+    <label for="s-version">Minecraft version</label>
+    <select id="s-version" bind:value={draft.mc_version} disabled={!versions.length}>
+      {#each shownVersions as v (v.id)}
+        <option value={v.id}>{v.id}{v.type === "release" ? "" : ` · ${v.type}`}</option>
+      {/each}
+    </select>
+    <label class="check">
+      <input type="checkbox" bind:checked={showSnapshots} />
+      Show snapshots
+    </label>
+    {#if fabricUnsupported}
+      <p class="warn">Fabric has no loader for {draft.mc_version}. Pick another version.</p>
+    {:else if changedVersion}
+      <p class="warn">
+        The new version downloads on the next launch. Worlds and configs stay,
+        but mods built for {instance.mc_version} will most likely stop working.
+      </p>
+    {/if}
   </div>
 
   <div class="field">
@@ -102,7 +164,7 @@
     </p>
   </div>
 
-  {#if instance.loader === "fabric"}
+  {#if draft.loader === "fabric"}
     <div class="field">
       <label for="s-loader">Fabric loader</label>
       <select id="s-loader" bind:value={draft.loader_version}>
@@ -137,6 +199,7 @@
 
   <div class="meta">
     <span>Minecraft {instance.mc_version}</span>
+    <span>{playTime(instance.play_time)}</span>
     <span>{instance.loader === "fabric" ? `Fabric ${instance.loader_version || ""}` : "Vanilla"}</span>
   </div>
 
@@ -152,7 +215,7 @@
       </button>
       <span class="spacer"></span>
       <button onclick={onclose}>Cancel</button>
-      <button class="primary" onclick={save}>Save</button>
+      <button class="primary" onclick={save} disabled={fabricUnsupported}>Save</button>
     {/if}
   {/snippet}
 </Modal>
@@ -168,6 +231,26 @@
   .field p {
     margin: 6px 0 0;
     line-height: 1.5;
+  }
+
+  .warn {
+    color: var(--danger);
+  }
+
+  /* A choice the user reads, not a field name — so it opts out of the
+     stencilled uppercase treatment the global label rule applies. */
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 0 0;
+    font-size: 12.5px;
+    font-weight: 400;
+    font-stretch: 100%;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--text-dim);
+    cursor: pointer;
   }
 
   .meta {

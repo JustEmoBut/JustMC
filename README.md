@@ -26,21 +26,29 @@ Chromium is bundled.
 - Shared library/asset store, so instances on the same version cost no extra disk
 - Every asset layout Minecraft has used, including the named-file trees that
   1.7.2 and older need
-- Mod management for Fabric instances: list, enable, disable, delete, drop a
-  jar on the window, and check installed jars for newer builds
-- Browse Modrinth from inside the launcher: sort by relevance, downloads,
-  followers or date, filter by category, hide what is already installed, read a
-  project and install any version of it, with its required dependencies
-- Export an instance to a zip; import one by dropping it on the window
+- Mod management for Fabric instances, and resource packs and shaders for any
+  instance: list, enable, disable, delete, drop a file on the window, and check
+  what is installed for newer builds
+- Browse Modrinth from inside the launcher — mods, resource packs and shaders:
+  sort by relevance, downloads, followers or date, filter by category, hide what
+  is already installed, read a project and install any version of it, with its
+  required dependencies
+- Export an instance to a zip; import one, or a Modrinth `.mrpack` modpack,
+  from Add Instance or by dropping it on the window
+- Duplicate an instance with its worlds and configs; change an existing
+  instance's Minecraft version
 - Java detection matched to each version's required major, and automatic
   download of Mojang's own runtime when the machine has none
+- Total play time per instance, and launcher settings: the memory, Java and JVM
+  arguments a new instance starts with, and whether the window minimises while
+  the game runs
 - Live game log with error highlighting; copying it redacts session tokens and
   usernames
 
 ## Not included
 
-CurseForge, modpack import, world manager, custom themes, Forge/NeoForge/Quilt,
-skin management, changing an existing instance's version.
+CurseForge, world manager, custom themes, Forge/NeoForge/Quilt, skin
+management.
 
 CurseForge is absent for a reason rather than an oversight: its API needs a
 per-launcher key that cannot be shipped in an open source build, and it lets
@@ -86,8 +94,10 @@ src-tauri/src/
   jre.rs            downloading Mojang's Java runtimes
   download.rs       parallel fetcher with checksum verification
   fabric.rs         Fabric loader metadata
-  pack.rs           instance export/import archives
-  mods.rs           the instance's mods folder: list, enable, delete
+  settings.rs       launcher-wide preferences and new-instance defaults
+  pack.rs           instance export/import archives, duplication
+  mrpack.rs         Modrinth modpack (.mrpack) import
+  mods.rs           mods, resourcepacks, shaderpacks: list, enable, delete
   modrinth.rs       Modrinth search and jar resolution
 ```
 

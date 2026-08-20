@@ -46,3 +46,7 @@ pub fn exports() -> PathBuf {
 pub fn accounts_file() -> PathBuf {
     root().join("accounts.json")
 }
+
+pub fn settings_file() -> PathBuf {
+    root().join("settings.json")
+}

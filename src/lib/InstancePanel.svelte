@@ -22,6 +22,7 @@
   } = $props();
 
   let exporting = $state(false);
+  let duplicating = $state(false);
   let confirmingDelete = $state(false);
 
   // Reset the delete confirmation when the selection moves or the game starts,
@@ -39,9 +40,28 @@
     exporting = false;
   }
 
+  async function duplicate() {
+    duplicating = true;
+    await actions.duplicateInstance(instance);
+    duplicating = false;
+    await onchanged();
+  }
+
   async function remove() {
     await actions.deleteInstance(instance);
     await onchanged();
+  }
+
+  /**
+   * Whole hours once there are any, minutes below that. A session shorter than
+   * a minute still says something: silence there reads as a broken counter.
+   */
+  function playTime(seconds: number) {
+    if (!seconds) return "";
+    if (seconds < 60) return "under a minute played";
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} min played`;
+    return `${Math.floor(minutes / 60)} h ${minutes % 60} min played`;
   }
 
   function played(at: number) {
@@ -92,12 +112,14 @@
       <Icon name="folder" />
       Folder
     </button>
-    {#if instance.loader === "fabric"}
-      <button onclick={() => onmods(instance)}>
-        <Icon name="sliders" />
-        Mods
-      </button>
-    {/if}
+    <button onclick={() => onmods(instance)}>
+      <Icon name="sliders" />
+      Content
+    </button>
+    <button onclick={duplicate} disabled={duplicating || !!status}>
+      <Icon name="copy" />
+      {duplicating ? "Copying…" : "Duplicate"}
+    </button>
     <button onclick={exportInstance} disabled={exporting}>
       <Icon name="export" />
       {exporting ? "Exporting…" : "Export"}
@@ -124,7 +146,9 @@
     {/if}
   </nav>
 
-  <p class="footnote">{played(instance.last_played)}</p>
+  <p class="footnote">
+    {played(instance.last_played)}{#if playTime(instance.play_time)} · {playTime(instance.play_time)}{/if}
+  </p>
 </aside>
 
 <style>

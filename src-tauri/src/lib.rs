@@ -8,9 +8,12 @@ pub mod jre;
 pub mod pack;
 pub mod launch;
 pub mod mojang;
+pub mod mrpack;
 
 pub mod mods;
 pub mod modrinth;
+
+pub mod settings;
 
 mod download;
 mod error;
@@ -61,6 +64,14 @@ async fn update_instance(instance: Instance) -> Result<()> {
     if existing.id != instance.id {
         return Err(Error::msg("Instance id cannot be changed."));
     }
+    let mut instance = instance;
+    if instance.mc_version != existing.mc_version {
+        // Libraries, assets and the client jar are all version-specific, and a
+        // Fabric loader build is only listed for the versions it supports, so
+        // both have to be resolved again from scratch on the next launch.
+        instance.installed = false;
+        instance.loader_version = String::new();
+    }
     instance.save().await
 }
 
@@ -81,9 +92,9 @@ async fn open_instance_folder(app: tauri::AppHandle, id: String) -> Result<()> {
 
 /// Open the instance's mods directory, creating it if the user has none yet.
 #[tauri::command]
-async fn open_mods_folder(app: tauri::AppHandle, id: String) -> Result<()> {
+async fn open_mods_folder(app: tauri::AppHandle, id: String, kind: mods::Kind) -> Result<()> {
     use tauri_plugin_opener::OpenerExt;
-    let dir = instance::get(&id).await?.game_dir().join("mods");
+    let dir = instance::get(&id).await?.game_dir().join(kind.folder());
     tokio::fs::create_dir_all(&dir).await?;
     app.opener()
         .open_path(dir.to_string_lossy(), None::<&str>)
@@ -101,8 +112,46 @@ async fn export_instance(id: String) -> Result<String> {
 }
 
 #[tauri::command]
-async fn import_instance(path: String) -> Result<Instance> {
-    tokio::task::spawn_blocking(move || pack::import(std::path::Path::new(&path)))
+async fn import_instance(app: tauri::AppHandle, path: String) -> Result<Instance> {
+    import_archive(&app, std::path::Path::new(&path)).await
+}
+
+/// A Modrinth pack is a zip too, so the extension is what tells the two formats
+/// apart before either parser is handed the file.
+async fn import_archive(app: &tauri::AppHandle, path: &std::path::Path) -> Result<Instance> {
+    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("mrpack")) {
+        return mrpack::import(app, path).await;
+    }
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || pack::import(&path))
+        .await
+        .map_err(|e| Error::msg(e.to_string()))?
+}
+
+/// Import an archive the webview's file picker handed over as bytes.
+///
+/// A `<input type="file">` yields content, never a path, so the bytes are
+/// staged in a temp file and the normal importer runs against that.
+#[tauri::command]
+async fn import_archive_bytes(
+    app: tauri::AppHandle,
+    name: String,
+    bytes: Vec<u8>,
+) -> Result<Instance> {
+    // The name comes from the file the user picked; it only decides the temp
+    // file, but it is still a name being joined onto a path.
+    let staged = std::env::temp_dir().join(format!("justlauncher-{}", mods::checked_name(&name)?));
+    tokio::fs::write(&staged, bytes).await?;
+    let result = import_archive(&app, &staged).await;
+    let _ = tokio::fs::remove_file(&staged).await;
+    result
+}
+
+#[tauri::command]
+async fn duplicate_instance(id: String, name: String) -> Result<Instance> {
+    let inst = instance::get(&id).await?;
+    // Copying a world folder is blocking IO; keep it off the async runtime.
+    tokio::task::spawn_blocking(move || pack::duplicate(&inst, &name))
         .await
         .map_err(|e| Error::msg(e.to_string()))?
 }
@@ -139,21 +188,30 @@ fn stop_instance(id: String) -> bool {
     launch::stop(&id)
 }
 
-// ----------------------------------------------------------------------- mods
+// ------------------------------------------------- mods, resource and shaders
+
+// `kind` selects the instance folder these act on: mods, resourcepacks or
+// shaderpacks. It also carries the Modrinth project type and the loaders a
+// build of that kind is tagged with, so one set of commands covers all three.
 
 #[tauri::command]
-async fn list_mods(id: String) -> Result<Vec<mods::ModFile>> {
-    mods::list(&id).await
+async fn list_mods(id: String, kind: mods::Kind) -> Result<Vec<mods::ModFile>> {
+    mods::list(&id, kind).await
 }
 
 #[tauri::command]
-async fn set_mod_enabled(id: String, file: String, enabled: bool) -> Result<String> {
-    mods::set_enabled(&id, &file, enabled).await
+async fn set_mod_enabled(
+    id: String,
+    kind: mods::Kind,
+    file: String,
+    enabled: bool,
+) -> Result<String> {
+    mods::set_enabled(&id, kind, &file, enabled).await
 }
 
 #[tauri::command]
-async fn delete_mod(id: String, file: String) -> Result<()> {
-    mods::delete(&id, &file).await
+async fn delete_mod(id: String, kind: mods::Kind, file: String) -> Result<()> {
+    mods::delete(&id, kind, &file).await
 }
 
 #[tauri::command]
@@ -163,8 +221,22 @@ async fn search_mods(
     sort: String,
     category: Option<String>,
     offset: u32,
+    kind: mods::Kind,
 ) -> Result<modrinth::SearchPage> {
-    modrinth::search(&query, &mc_version, &sort, category.as_deref(), offset, 20).await
+    // Only mods narrow by loader; a resource pack or shader has none to filter
+    // on, and adding one there returns an empty catalogue.
+    let loader = (kind == mods::Kind::Mods).then_some("fabric");
+    modrinth::search(
+        &query,
+        &mc_version,
+        &sort,
+        category.as_deref(),
+        offset,
+        20,
+        kind.project_type(),
+        loader,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -173,8 +245,12 @@ async fn mod_project(id: String) -> Result<modrinth::Project> {
 }
 
 #[tauri::command]
-async fn mod_versions(project: String, mc_version: String) -> Result<Vec<modrinth::Version>> {
-    modrinth::versions(&project, &mc_version).await
+async fn mod_versions(
+    project: String,
+    mc_version: String,
+    kind: mods::Kind,
+) -> Result<Vec<modrinth::Version>> {
+    modrinth::versions(&project, &mc_version, kind.loaders()).await
 }
 
 /// Install a Modrinth project into an instance, with the required dependencies
@@ -186,13 +262,14 @@ async fn mod_versions(project: String, mc_version: String) -> Result<Vec<modrint
 async fn install_mod(
     app: tauri::AppHandle,
     id: String,
+    kind: mods::Kind,
     project: String,
     version_id: Option<String>,
 ) -> Result<Vec<String>> {
     let instance = instance::get(&id).await?;
     let version = match version_id {
         Some(v) => modrinth::version(&v).await?,
-        None => modrinth::latest_version(&project, &instance.mc_version).await?,
+        None => modrinth::latest_version(&project, &instance.mc_version, kind.loaders()).await?,
     };
 
     let mut installed = Vec::new();
@@ -207,10 +284,11 @@ async fn install_mod(
             continue;
         }
         if let Some(jar) = version.jar() {
-            mods::remove_other_versions(&id, &version.project_id, &jar.filename).await?;
+            mods::remove_other_versions(&id, kind, &version.project_id, &jar.filename).await?;
             mods::fetch(
                 &app,
                 &id,
+                kind,
                 &jar.url,
                 &jar.filename,
                 jar.hashes.sha1.clone(),
@@ -219,10 +297,15 @@ async fn install_mod(
             .await?;
             installed.push(jar.filename.clone());
         }
+        if !kind.installs_dependencies() {
+            continue;
+        }
         for dep in version.dependencies.iter().filter(|d| d.dependency_type == "required") {
             let resolved = match (&dep.version_id, &dep.project_id) {
                 (Some(v), _) => modrinth::version(v).await,
-                (None, Some(p)) => modrinth::latest_version(p, &instance.mc_version).await,
+                (None, Some(p)) => {
+                    modrinth::latest_version(p, &instance.mc_version, kind.loaders()).await
+                }
                 (None, None) => continue,
             };
             // A dependency with no build for this Minecraft version must not
@@ -252,30 +335,43 @@ async fn open_url(app: tauri::AppHandle, url: String) -> Result<()> {
 }
 
 #[tauri::command]
-async fn add_mod_file(id: String, path: String) -> Result<String> {
-    mods::add_file(&id, std::path::Path::new(&path)).await
+async fn add_mod_file(id: String, kind: mods::Kind, path: String) -> Result<String> {
+    mods::add_file(&id, kind, std::path::Path::new(&path)).await
 }
 
-/// Modrinth project ids of the mods already installed, for marking search
+/// Modrinth project ids of what is already installed, for marking search
 /// results as installed.
 #[tauri::command]
-async fn installed_mod_projects(id: String) -> Result<Vec<String>> {
-    mods::installed_projects(&id).await
+async fn installed_mod_projects(id: String, kind: mods::Kind) -> Result<Vec<String>> {
+    mods::installed_projects(&id, kind).await
 }
 
 #[tauri::command]
-async fn check_mod_updates(id: String) -> Result<Vec<mods::ModUpdate>> {
-    mods::check_updates(&id).await
+async fn check_mod_updates(id: String, kind: mods::Kind) -> Result<Vec<mods::ModUpdate>> {
+    mods::check_updates(&id, kind).await
 }
 
 #[tauri::command]
 async fn update_mod(
     app: tauri::AppHandle,
     id: String,
+    kind: mods::Kind,
     file: String,
     version_id: String,
 ) -> Result<String> {
-    mods::update_to(&app, &id, &file, &version_id).await
+    mods::update_to(&app, &id, kind, &file, &version_id).await
+}
+
+// ------------------------------------------------------------------- settings
+
+#[tauri::command]
+async fn get_settings() -> settings::Settings {
+    settings::load().await
+}
+
+#[tauri::command]
+async fn save_settings(settings: settings::Settings) -> Result<()> {
+    settings::save(&settings).await
 }
 
 // ------------------------------------------------------------------- accounts
@@ -363,6 +459,8 @@ pub fn run() {
             delete_instance,
             export_instance,
             import_instance,
+            duplicate_instance,
+            import_archive_bytes,
             open_exports_folder,
             open_instance_folder,
             open_mods_folder,
@@ -388,6 +486,8 @@ pub fn run() {
             remove_account,
             list_java,
             system_memory_mb,
+            get_settings,
+            save_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running JustLauncher");

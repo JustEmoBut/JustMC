@@ -3,7 +3,7 @@
 use crate::auth::{Account, AccountKind};
 use crate::error::{Error, Result};
 use crate::install;
-use crate::instance::Instance;
+use crate::instance::{self, Instance};
 use crate::java;
 use crate::jre;
 use crate::mojang::{Arg, VersionJson, rules_allow};
@@ -312,11 +312,9 @@ pub async fn launch(app: &AppHandle, mut instance: Instance, account: Account) -
         Error::msg(format!("Failed to start Java at {java_bin}: {e}"))
     })?;
 
-    instance.last_played = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    instance.last_played = instance::now_secs();
     instance.save().await?;
+    let started = instance.last_played;
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -352,6 +350,13 @@ pub async fn launch(app: &AppHandle, mut instance: Instance, account: Account) -
             }
         }
         let code = child.wait().await.ok().and_then(|s| s.code()).unwrap_or(-1);
+
+        // Re-read rather than reusing the copy captured at launch: the settings
+        // dialog may have written the file while the game was running.
+        if let Ok(mut played) = instance::get(&id).await {
+            played.play_time += instance::now_secs().saturating_sub(started);
+            let _ = played.save().await;
+        }
         let _ = app_handle.emit("game-exited", Exited { instance: id, code });
     });
 

@@ -1,8 +1,16 @@
 <script lang="ts">
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import * as actions from "./lib/actions";
-  import { api, errorMessage, type Account, type Instance } from "./lib/api";
+  import {
+    api,
+    errorMessage,
+    type Account,
+    type Instance,
+    type ModKind,
+    type Settings as SettingsData,
+  } from "./lib/api";
   import Accounts from "./lib/Accounts.svelte";
   import ContextMenu, { type MenuItem } from "./lib/ContextMenu.svelte";
   import Icon from "./lib/Icon.svelte";
@@ -13,6 +21,7 @@
   import Mods from "./lib/Mods.svelte";
   import Modal from "./lib/Modal.svelte";
   import NewInstance from "./lib/NewInstance.svelte";
+  import Settings from "./lib/Settings.svelte";
   import TaskWindow from "./lib/TaskWindow.svelte";
   import { task, type Progress } from "./lib/task.svelte";
   import Toasts from "./lib/Toasts.svelte";
@@ -25,11 +34,21 @@
   let selectedId = $state("");
   let search = $state("");
 
+  /**
+   * Launcher-wide preferences. Held here because `play` and the game-exit
+   * listener both read `minimise_on_play`, and loaded once rather than per
+   * launch — the settings dialog hands back what it saved.
+   */
+  let settings = $state<SettingsData | null>(null);
+
   let showNew = $state(false);
+  let showSettings = $state(false);
   let showAccounts = $state(false);
   let editing = $state<Instance | null>(null);
   let managingMods = $state<Instance | null>(null);
-  /** Bumped when a dropped jar lands, to make the mods window re-read the folder. */
+  /** Which folder the content window is showing, so a drop lands in it. */
+  let modsKind = $state<ModKind>("mods");
+  /** Bumped when a dropped file lands, to make the content window re-read the folder. */
   let modsChanged = $state(0);
 
   /** Instance ids currently installing or running, with the label to show. */
@@ -70,6 +89,7 @@
   $effect(() => {
     refreshInstances();
     refreshAccounts();
+    api.getSettings().then((s) => (settings = s));
 
     const unlisten = [
       // One subscription for the whole app: whoever started the download owns
@@ -89,6 +109,7 @@
           notify(`${name} exited with code ${e.payload.code}. Check the log.`, "error");
           showLog = true;
         }
+        if (settings?.minimise_on_play) restoreWindow();
         refreshInstances();
       }),
     ];
@@ -112,12 +133,14 @@
   });
 
   async function importDropped(paths: string[]) {
-    // While the mods window is open, a dropped jar belongs to that instance.
-    const jars = paths.filter((p) => p.toLowerCase().endsWith(".jar"));
-    if (managingMods && jars.length) {
-      for (const path of jars) {
+    // While the content window is open, a dropped file belongs to the folder
+    // it is showing — a jar for mods, a zip for resource packs and shaders.
+    const extension = modsKind === "mods" ? ".jar" : ".zip";
+    const content = paths.filter((p) => p.toLowerCase().endsWith(extension));
+    if (managingMods && content.length) {
+      for (const path of content) {
         try {
-          notify(`Added ${await api.addModFile(managingMods.id, path)}.`);
+          notify(`Added ${await api.addModFile(managingMods.id, modsKind, path)}.`);
         } catch (e) {
           notify(errorMessage(e), "error");
         }
@@ -126,18 +149,24 @@
       return;
     }
 
-    const zips = paths.filter((p) => p.toLowerCase().endsWith(".zip"));
-    if (zips.length === 0) {
-      notify("Drop an exported instance .zip to import it.", "error");
+    const packs = paths.filter((p) => /\.(zip|mrpack)$/i.test(p));
+    if (packs.length === 0) {
+      notify("Drop an exported instance .zip or a Modrinth .mrpack to import it.", "error");
       return;
     }
-    for (const path of zips) {
+    for (const path of packs) {
+      // A .mrpack downloads its whole mod list, so it needs the progress
+      // window an exported .zip does not.
+      const pack = path.toLowerCase().endsWith(".mrpack");
+      if (pack) task.begin("Importing pack");
       try {
         const imported = await api.importInstance(path);
         notify(`Imported ${imported.name}.`);
         selectedId = imported.id;
       } catch (e) {
         notify(errorMessage(e), "error");
+      } finally {
+        if (pack) task.end();
       }
     }
     await refreshInstances();
@@ -156,6 +185,13 @@
       await api.launchInstance(instance.id, selectedAccount);
       busy[instance.id] = "Running";
       showLog = true;
+      // Only once the process is actually up: a launch that fails must leave
+      // the window where the user can read the error.
+      if (settings?.minimise_on_play) {
+        // Reported rather than swallowed: this is a permission-gated call, and
+        // a silent rejection is exactly how it went unnoticed before.
+        getCurrentWindow().minimize().catch((e) => notify(errorMessage(e), "error"));
+      }
       await refreshInstances();
     } catch (e) {
       delete busy[instance.id];
@@ -163,6 +199,15 @@
     } finally {
       task.end();
     }
+  }
+
+  /**
+   * Open the content window on the folder that instance can actually use:
+   * a vanilla instance has no loader, so it never starts on mods.
+   */
+  function openContent(instance: Instance) {
+    modsKind = instance.loader === "fabric" ? "mods" : "resourcepacks";
+    managingMods = instance;
   }
 
   function openMenu(instance: Instance, event: MouseEvent) {
@@ -194,20 +239,29 @@
           action: () => (editing = instance),
         },
         { label: "Open Folder", icon: "folder", action: () => actions.openFolder(instance) },
+        {
+          label: "Content",
+          icon: "sliders",
+          action: () => openContent(instance),
+        },
         ...(instance.loader === "fabric"
           ? [
               {
-                label: "Mods",
-                icon: "sliders" as const,
-                action: () => (managingMods = instance),
-              },
-              {
                 label: "Mods Folder",
                 icon: "folder" as const,
-                action: () => actions.openModsFolder(instance),
+                action: () => actions.openModsFolder(instance, "mods"),
               },
             ]
           : []),
+        {
+          label: "Duplicate",
+          icon: "copy",
+          disabled: !!busy[instance.id],
+          action: async () => {
+            await actions.duplicateInstance(instance);
+            await refreshInstances();
+          },
+        },
         { label: "Export", icon: "export", action: () => actions.exportInstance(instance) },
         {
           label: "Delete",
@@ -238,8 +292,19 @@
           icon: "import",
           action: () => (showLog = !showLog),
         },
+        { label: "Settings", icon: "gear", action: () => (showSettings = true) },
       ],
     };
+  }
+
+  async function restoreWindow() {
+    const window = getCurrentWindow();
+    try {
+      await window.unminimize();
+      await window.setFocus();
+    } catch (e) {
+      notify(errorMessage(e), "error");
+    }
   }
 
   async function confirmDelete() {
@@ -279,6 +344,11 @@
     >
       <Icon name="import" />
       <span class="tip">Output</span>
+    </button>
+
+    <button class="railed" onclick={() => (showSettings = true)} title="Settings">
+      <Icon name="gear" />
+      <span class="tip">Settings</span>
     </button>
 
     <span class="spacer"></span>
@@ -328,7 +398,7 @@
           <p class="muted">
             {search
               ? "Nothing here matches that search."
-              : "Add one, or drop an exported .zip anywhere on this window."}
+              : "Add one, or drop a .zip or .mrpack anywhere on this window."}
           </p>
         </div>
       {:else}
@@ -353,7 +423,7 @@
         status={busy[selected.id]}
         onlaunch={play}
         onedit={(i) => (editing = i)}
-        onmods={(i) => (managingMods = i)}
+        onmods={openContent}
         onchanged={refreshInstances}
       />
     {/if}
@@ -396,10 +466,19 @@
     </Modal>
   {/if}
 
+  {#if showSettings && settings}
+    <Settings
+      {settings}
+      onclose={() => (showSettings = false)}
+      onsaved={(saved) => (settings = saved)}
+    />
+  {/if}
+
   {#if managingMods}
     <Mods
       instance={managingMods}
       changed={modsChanged}
+      bind:kind={modsKind}
       onclose={() => (managingMods = null)}
     />
   {/if}
@@ -422,7 +501,7 @@
   <div class="dropzone">
     <div class="dropzone-inner">
       <strong>Drop to import</strong>
-      <span class="muted">An instance .zip exported from JustLauncher</span>
+      <span class="muted">An exported instance .zip, or a Modrinth .mrpack</span>
     </div>
   </div>
 {/if}

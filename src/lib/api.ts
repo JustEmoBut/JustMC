@@ -2,6 +2,17 @@ import { invoke } from "@tauri-apps/api/core";
 
 export type Loader = "vanilla" | "fabric";
 
+/** Which instance folder a mods call acts on; the values are the folder names. */
+export type ModKind = "mods" | "resourcepacks" | "shaderpacks";
+
+/** Launcher-wide preferences; the first three are defaults for new instances. */
+export interface Settings {
+  memory_mb: number;
+  java_path: string;
+  jvm_args: string;
+  minimise_on_play: boolean;
+}
+
 export interface Instance {
   id: string;
   name: string;
@@ -12,6 +23,8 @@ export interface Instance {
   java_path: string;
   jvm_args: string;
   last_played: number;
+  /** Seconds the game has run in this instance, across every launch. */
+  play_time: number;
   installed: boolean;
 }
 
@@ -61,6 +74,8 @@ export interface ModFile {
   version: string;
   enabled: boolean;
   size: number;
+  /** Icon from the jar's fabric.mod.json as a data: URI, when it ships one. */
+  icon: string | null;
 }
 
 export interface ModHit {
@@ -129,6 +144,11 @@ export const api = {
   openInstanceFolder: (id: string) => invoke<void>("open_instance_folder", { id }),
   exportInstance: (id: string) => invoke<string>("export_instance", { id }),
   importInstance: (path: string) => invoke<Instance>("import_instance", { path }),
+  /** For a file the webview picked: it hands over content, never a path. */
+  importArchiveBytes: (name: string, bytes: Uint8Array) =>
+    invoke<Instance>("import_archive_bytes", { name, bytes }),
+  duplicateInstance: (id: string, name: string) =>
+    invoke<Instance>("duplicate_instance", { id, name }),
   openExportsFolder: () => invoke<void>("open_exports_folder"),
   installInstance: (id: string) => invoke<void>("install_instance", { id }),
   launchInstance: (id: string, accountId: string) =>
@@ -142,32 +162,41 @@ export const api = {
   addOfflineAccount: (name: string) => invoke<Account>("add_offline_account", { name }),
   removeAccount: (id: string) => invoke<void>("remove_account", { id }),
 
-  openModsFolder: (id: string) => invoke<void>("open_mods_folder", { id }),
-  listMods: (id: string) => invoke<ModFile[]>("list_mods", { id }),
-  setModEnabled: (id: string, file: string, enabled: boolean) =>
-    invoke<string>("set_mod_enabled", { id, file, enabled }),
-  deleteMod: (id: string, file: string) => invoke<void>("delete_mod", { id, file }),
+  openModsFolder: (id: string, kind: ModKind) =>
+    invoke<void>("open_mods_folder", { id, kind }),
+  listMods: (id: string, kind: ModKind) => invoke<ModFile[]>("list_mods", { id, kind }),
+  setModEnabled: (id: string, kind: ModKind, file: string, enabled: boolean) =>
+    invoke<string>("set_mod_enabled", { id, kind, file, enabled }),
+  deleteMod: (id: string, kind: ModKind, file: string) =>
+    invoke<void>("delete_mod", { id, kind, file }),
   searchMods: (
     query: string,
     mcVersion: string,
     sort: string,
     category: string | null,
-    offset: number
-  ) => invoke<ModSearchPage>("search_mods", { query, mcVersion, sort, category, offset }),
+    offset: number,
+    kind: ModKind
+  ) => invoke<ModSearchPage>("search_mods", { query, mcVersion, sort, category, offset, kind }),
   modProject: (id: string) => invoke<ModProject>("mod_project", { id }),
-  modVersions: (project: string, mcVersion: string) =>
-    invoke<ModVersion[]>("mod_versions", { project, mcVersion }),
-  /** Installs the jar plus its required dependencies; returns every file added. */
-  installMod: (id: string, project: string, versionId: string | null) =>
-    invoke<string[]>("install_mod", { id, project, versionId }),
+  modVersions: (project: string, mcVersion: string, kind: ModKind) =>
+    invoke<ModVersion[]>("mod_versions", { project, mcVersion, kind }),
+  /** Installs the file plus, for mods, its required dependencies; returns every file added. */
+  installMod: (id: string, kind: ModKind, project: string, versionId: string | null) =>
+    invoke<string[]>("install_mod", { id, kind, project, versionId }),
   /** Opens an http(s) link in the user's browser; other schemes are refused. */
   openUrl: (url: string) => invoke<void>("open_url", { url }),
-  addModFile: (id: string, path: string) => invoke<string>("add_mod_file", { id, path }),
-  /** Modrinth project ids of the jars already installed, matched by SHA-1. */
-  installedModProjects: (id: string) => invoke<string[]>("installed_mod_projects", { id }),
-  checkModUpdates: (id: string) => invoke<ModUpdate[]>("check_mod_updates", { id }),
-  updateMod: (id: string, file: string, versionId: string) =>
-    invoke<string>("update_mod", { id, file, versionId }),
+  addModFile: (id: string, kind: ModKind, path: string) =>
+    invoke<string>("add_mod_file", { id, kind, path }),
+  /** Modrinth project ids of what is already installed, matched by SHA-1. */
+  installedModProjects: (id: string, kind: ModKind) =>
+    invoke<string[]>("installed_mod_projects", { id, kind }),
+  checkModUpdates: (id: string, kind: ModKind) =>
+    invoke<ModUpdate[]>("check_mod_updates", { id, kind }),
+  updateMod: (id: string, kind: ModKind, file: string, versionId: string) =>
+    invoke<string>("update_mod", { id, kind, file, versionId }),
+
+  getSettings: () => invoke<Settings>("get_settings"),
+  saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
 
   listJava: () => invoke<JavaInstall[]>("list_java"),
   /** Physical RAM in MB, or null when the platform will not say. */

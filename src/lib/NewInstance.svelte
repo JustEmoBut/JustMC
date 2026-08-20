@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api, errorMessage, type Loader, type ManifestVersion } from "./api";
   import Modal from "./Modal.svelte";
+  import { task } from "./task.svelte";
   import { notify } from "./toast.svelte";
 
   let { onclose, oncreated }: { onclose: () => void; oncreated: () => Promise<void> } = $props();
@@ -64,6 +65,35 @@
       .finally(() => (loading = false));
   });
 
+  /**
+   * Import a Modrinth pack the user picked from disk.
+   *
+   * The file input gives content rather than a path — a webview never exposes
+   * one — so the bytes go over IPC and the backend stages them.
+   */
+  async function importPack(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    // Clear it straight away so picking the same file twice still fires.
+    input.value = "";
+    if (!file) return;
+
+    busy = true;
+    task.begin(`Importing ${file.name}`);
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const imported = await api.importArchiveBytes(file.name, bytes);
+      notify(`Imported ${imported.name}.`);
+      await oncreated();
+      onclose();
+    } catch (e) {
+      notify(errorMessage(e), "error");
+    } finally {
+      task.end();
+      busy = false;
+    }
+  }
+
   async function create() {
     busy = true;
     try {
@@ -117,6 +147,22 @@
     <input id="inst-name" bind:value={name} oninput={() => (nameTouched = true)} />
   </div>
 
+  <div class="field import">
+    <label for="pack-file">Or install a modpack</label>
+    <input
+      id="pack-file"
+      type="file"
+      accept=".mrpack,.zip"
+      disabled={busy}
+      onchange={importPack}
+    />
+    <p class="faint">
+      A Modrinth <code>.mrpack</code>, or an instance <code>.zip</code> exported
+      from JustLauncher. Everything above is ignored — the pack brings its own
+      version, loader and mods.
+    </p>
+  </div>
+
   {#snippet footer()}
     <button onclick={onclose}>Cancel</button>
     <button
@@ -131,6 +177,21 @@
 </Modal>
 
 <style>
+  .import {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+
+  .import input[type="file"] {
+    font-size: 12.5px;
+  }
+
+  .import p {
+    margin: 8px 0 0;
+    line-height: 1.5;
+  }
+
   .warn {
     margin: -4px 0 14px;
     font-size: 12.5px;

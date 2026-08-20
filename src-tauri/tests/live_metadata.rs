@@ -22,6 +22,7 @@ fn instance(mc_version: &str, loader: Loader, loader_version: &str) -> Instance 
         java_path: String::new(),
         jvm_args: "-XX:+UseG1GC".into(),
         last_played: 0,
+        play_time: 0,
         installed: false,
     }
 }
@@ -142,17 +143,25 @@ async fn fabric_reports_no_loaders_for_an_unsupported_version() {
 async fn modrinth_finds_a_fabric_mod_and_its_jar() {
     use justlauncher_lib::modrinth;
 
-    let page = modrinth::search("sodium", "1.21.1", "relevance", None, 0, 5).await.unwrap();
+    let page = modrinth::search("sodium", "1.21.1", "relevance", None, 0, 5, "mod", Some("fabric"))
+        .await
+        .unwrap();
     assert!(!page.hits.is_empty(), "sodium should be findable for 1.21.1");
 
-    let version = modrinth::latest_version(&page.hits[0].project_id, "1.21.1").await.unwrap();
+    let version = modrinth::latest_version(&page.hits[0].project_id, "1.21.1", &["fabric"])
+        .await
+        .unwrap();
     let jar = version.jar().expect("a version has a jar");
     assert!(jar.filename.ends_with(".jar"), "got {}", jar.filename);
     assert!(jar.size > 0);
     assert!(jar.hashes.sha1.is_some());
 
     // A version the project has no Fabric build for must say so, not panic.
-    assert!(modrinth::latest_version(&page.hits[0].project_id, "1.2.5").await.is_err());
+    assert!(
+        modrinth::latest_version(&page.hits[0].project_id, "1.2.5", &["fabric"])
+            .await
+            .is_err()
+    );
 }
 
 /// Search sorting, project detail, version listing and the hash-based update
@@ -162,9 +171,18 @@ async fn modrinth_finds_a_fabric_mod_and_its_jar() {
 async fn modrinth_search_sort_and_update_check() {
     use justlauncher_lib::modrinth;
 
-    let page = modrinth::search("", "1.21.1", "downloads", Some("optimization"), 0, 5)
-        .await
-        .unwrap();
+    let page = modrinth::search(
+        "",
+        "1.21.1",
+        "downloads",
+        Some("optimization"),
+        0,
+        5,
+        "mod",
+        Some("fabric"),
+    )
+    .await
+    .unwrap();
     assert_eq!(page.hits.len(), 5);
     assert!(page.total_hits > 5);
     // Sorted by downloads, so each hit is at most as popular as the one before.
@@ -175,12 +193,14 @@ async fn modrinth_search_sort_and_update_check() {
     let project = modrinth::project(&page.hits[0].project_id).await.unwrap();
     assert!(!project.title.is_empty());
 
-    let versions = modrinth::versions(&project.id, "1.21.1").await.unwrap();
+    let versions = modrinth::versions(&project.id, "1.21.1", &["fabric"]).await.unwrap();
     let jar = versions[0].jar().expect("a version has a jar");
     let sha1 = jar.hashes.sha1.clone().expect("modrinth publishes sha1");
 
     // The file we sent is known, so it comes back; a made-up hash does not.
-    let map = modrinth::updates(&[sha1.clone(), "0".repeat(40)], "1.21.1").await.unwrap();
+    let map = modrinth::updates(&[sha1.clone(), "0".repeat(40)], "1.21.1", &["fabric"])
+        .await
+        .unwrap();
     assert!(map.contains_key(&sha1));
     assert_eq!(map.len(), 1);
 }
@@ -191,7 +211,7 @@ async fn modrinth_search_sort_and_update_check() {
 async fn modrinth_reports_required_dependencies() {
     use justlauncher_lib::modrinth;
 
-    let version = modrinth::latest_version("rei", "1.21.1").await.unwrap();
+    let version = modrinth::latest_version("rei", "1.21.1", &["fabric"]).await.unwrap();
     let required: Vec<_> = version
         .dependencies
         .iter()
@@ -208,7 +228,7 @@ async fn modrinth_reports_required_dependencies() {
 async fn modrinth_identifies_a_jar_by_its_hash() {
     use justlauncher_lib::modrinth;
 
-    let version = modrinth::latest_version("jade", "1.21.1").await.unwrap();
+    let version = modrinth::latest_version("jade", "1.21.1", &["fabric"]).await.unwrap();
     let sha1 = version.jar().unwrap().hashes.sha1.clone().unwrap();
 
     let found = modrinth::version_files(&[sha1.clone(), "0".repeat(40)]).await.unwrap();
@@ -217,4 +237,32 @@ async fn modrinth_identifies_a_jar_by_its_hash() {
 
     let project = modrinth::project(&version.project_id).await.unwrap();
     assert_ne!(project.title, "Jade", "title differs from the jar's own name");
+}
+
+/// Resource packs and shaders come from the same API as mods but are tagged
+/// differently: a different project type, and loaders that are not "fabric".
+/// Getting either wrong returns an empty catalogue rather than an error, so
+/// this asserts real results come back.
+#[tokio::test]
+#[ignore = "network"]
+async fn modrinth_serves_resource_packs_and_shaders() {
+    use justlauncher_lib::mods::Kind;
+    use justlauncher_lib::modrinth;
+
+    for kind in [Kind::Resourcepacks, Kind::Shaderpacks] {
+        let page = modrinth::search("", "1.21.1", "downloads", None, 0, 5, kind.project_type(), None)
+            .await
+            .unwrap();
+        assert!(!page.hits.is_empty(), "no {} for 1.21.1", kind.project_type());
+
+        let versions = modrinth::versions(&page.hits[0].project_id, "1.21.1", kind.loaders())
+            .await
+            .unwrap();
+        assert!(!versions.is_empty(), "{} has no build for 1.21.1", page.hits[0].slug);
+
+        // Both kinds ship a zip, which is what `Kind::extension` expects on disk.
+        let file = versions[0].jar().expect("a version has a file");
+        assert!(file.filename.to_lowercase().ends_with(".zip"), "got {}", file.filename);
+        assert!(file.hashes.sha1.is_some());
+    }
 }

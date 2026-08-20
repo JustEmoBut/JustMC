@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A Minecraft launcher: Rust + Tauri 2 backend, Svelte 5 + Vite frontend. A
 clean-slate rewrite of a Qt/C++ Prism Launcher fork; it does **not** read
 Prism/MultiMC data. Scope is vanilla and Fabric launching, plus the mods folder
-of a Fabric instance and installing mods from Modrinth — see README for what is
-deliberately out of scope.
+of a Fabric instance, installing mods from Modrinth and importing a Modrinth
+modpack — see README for what is deliberately out of scope.
 
 ## Commands
 
@@ -87,7 +87,27 @@ directories. See `paths.rs`.
       /shared/{libraries,assets,versions,java}   deduplicated across instances
       /exports/<id>.zip
       /accounts.json
+      /settings.json
 ```
+
+### Settings (`settings.rs`)
+
+`<root>/settings.json` holds the only preferences that belong to neither an
+instance nor an account: what a **new** instance starts with (memory, Java, JVM
+args) and whether the window minimises while a game runs. Saving them never
+touches an existing instance — that is what the instance dialog is for.
+
+Missing or unreadable falls back to defaults rather than erroring, and the
+struct is `#[serde(default)]`, so a file from an older or newer build still
+loads. The default heap is half the machine's RAM clamped to 2–8 GB, not a
+constant: a flat 4 GB is refused outright by `launch` on an 8 GB machine and is
+needlessly timid on a large one.
+
+**Window calls are permission-gated.** `minimize`, `unminimize` and `setFocus`
+are *not* in `core:window:default` — only the read-only `is-minimized` kind is.
+A missing permission rejects the promise rather than erroring visibly, so any
+new `getCurrentWindow()` call needs both an entry in
+`capabilities/default.json` and a `.catch` that reports.
 
 ### Mojang metadata (`mojang.rs`)
 
@@ -113,13 +133,52 @@ The messiest domain, because Minecraft's format changed repeatedly:
   flag marks the **single** build Fabric currently recommends — every other
   loader is flagged false, so never present those as "unstable".
 
-### Mods (`mods.rs`, `modrinth.rs`)
+### Instance archives (`pack.rs`, `mrpack.rs`)
 
-The mods folder is the database, like the instance list: `mods::list` reads
-`.minecraft/mods` and nothing caches it. A mod is disabled by appending
-`.disabled` to the file name — the convention every launcher shares, so the
-user's other tools still understand the folder. Names come from the jar's
-`fabric.mod.json`, falling back to the file name.
+Two zip formats, kept apart because only the extension distinguishes them:
+`import_archive` in `lib.rs` is the single place that dispatches, so a picker,
+a drop and any future caller all route the same way.
+
+- `pack.rs` is **our own** format: the instance config plus its whole
+  `.minecraft`. Libraries and assets are deliberately excluded — they live in
+  the shared store and re-downloading is cheaper than shipping them. `duplicate`
+  reuses the same `collect` filter as `export`, which is what keeps natives and
+  logs out of a copy for free.
+- `mrpack.rs` is **Modrinth's**: an index of URLs with hashes plus `overrides/`
+  folders. It downloads rather than unpacks, so every file becomes a
+  `download::Job` and is SHA-1 verified like any library. The index is
+  attacker-controlled, so `safe_join` guards every path and plain-HTTP downloads
+  are refused. A pack naming `forge`, `neoforge` or `quilt-loader` is rejected
+  **before** an instance is created; `env.client == "unsupported"` marks a
+  server-only file and is the only reason to skip one. A failure part-way
+  deletes the instance rather than leaving something that looks playable.
+
+Changing an instance's Minecraft version is `update_instance`'s job, not the
+UI's: it clears `loader_version` and `installed` whenever `mc_version` moves, so
+the next launch re-resolves both. A Fabric loader build is only listed for the
+versions it supports, which is why a pinned one cannot survive the change.
+
+### Content folders (`mods.rs`, `modrinth.rs`)
+
+The folder is the database, like the instance list: `mods::list` reads
+`.minecraft/<folder>` and nothing caches it. A file is disabled by appending
+`.disabled` to its name — the convention every launcher shares, so the user's
+other tools still understand the folder.
+
+`mods/`, `resourcepacks/` and `shaderpacks/` are one implementation, not three.
+`Kind` is the only thing that differs between them and carries all four
+differences: the folder name, the extension the game reads (`.jar` vs `.zip`),
+Modrinth's `project_type`, and the loaders a build is tagged with. Those last
+two are **verified against the live API**, not guessed — a resource pack build
+is `minecraft`, a shader is `iris` *and* `optifine` (Iris reads OptiFine
+shaders), and a wrong value returns an empty catalogue rather than an error, so
+`live_metadata` asserts real results come back. Only mods narrow the search by
+loader, and only mods install dependencies: a pack's dependency is the loader
+itself, which cannot go in a pack folder.
+
+Names come from whatever the archive states: `fabric.mod.json` for a mod,
+`pack.mcmeta` plus `pack.png` for a resource pack, and the file name when there
+is neither — which is the usual case for a shader.
 
 File names cross the IPC boundary and are joined onto a path, so `checked_name`
 rejects separators, `..` and absolute paths before any of them touches the disk.
@@ -233,8 +292,8 @@ the selection, never the download.
 
 ### Instance actions live in one place
 
-`src/lib/actions.ts` holds open-folder, export, stop and delete. The side panel,
-the settings dialog and the right-click menu (`ContextMenu.svelte`) all call it;
+`src/lib/actions.ts` holds open-folder, export, duplicate, stop and delete.
+The side panel, the settings dialog and the right-click menu (`ContextMenu.svelte`) all call it;
 adding an action there is what makes it appear everywhere it belongs.
 
 ### Dependencies

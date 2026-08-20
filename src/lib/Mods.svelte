@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import {
     api,
     errorMessage,
     type Instance,
     type ModFile,
+    type ModKind,
     type ModHit,
     type ModProject,
     type ModUpdate,
@@ -19,13 +21,32 @@
   let {
     instance,
     changed,
+    kind = $bindable("mods"),
     onclose,
   }: {
     instance: Instance;
-    /** Counter the parent bumps when it drops a jar into this instance. */
+    /** Counter the parent bumps when it drops a file into this instance. */
     changed: number;
+    /** Which folder is open. Bound, so a drop on the window lands in it. */
+    kind?: ModKind;
     onclose: () => void;
   } = $props();
+
+  /**
+   * The three folders this window manages.
+   *
+   * Mods need a loader, so a vanilla instance is offered the other two only —
+   * resource packs and shaders work on plain Minecraft (shaders need Iris,
+   * which is itself a mod, but the folder is read either way).
+   */
+  const KINDS = [
+    ["mods", "Mods"],
+    ["resourcepacks", "Resource packs"],
+    ["shaderpacks", "Shaders"],
+  ] as const;
+  const kinds = $derived(
+    instance.loader === "fabric" ? KINDS : KINDS.filter(([k]) => k !== "mods")
+  );
 
   /** Modrinth's search indices, in the order the picker offers them. */
   const SORTS = [
@@ -36,13 +57,28 @@
     ["updated", "Updated"],
   ] as const;
 
-  /** Modrinth's mod categories, from /v2/tag/category. */
-  const CATEGORIES = [
-    "adventure", "cursed", "decoration", "economy", "equipment", "food",
-    "game-mechanics", "library", "magic", "management", "minigame", "mobs",
-    "optimization", "social", "storage", "technology", "transportation",
-    "utility", "worldgen",
-  ];
+  /** Modrinth's categories per project type, from /v2/tag/category. */
+  const CATEGORIES: Record<ModKind, string[]> = {
+    mods: [
+      "adventure", "cursed", "decoration", "economy", "equipment", "food",
+      "game-mechanics", "library", "magic", "management", "minigame", "mobs",
+      "optimization", "social", "storage", "technology", "transportation",
+      "utility", "worldgen",
+    ],
+    resourcepacks: [
+      "audio", "blocks", "combat", "core-shaders", "cursed", "decoration",
+      "entities", "environment", "equipment", "fonts", "gui", "items",
+      "locale", "modded", "models", "realistic", "simplistic", "themed",
+      "tweaks", "utility", "vanilla-like",
+      "8x-", "16x", "32x", "48x", "64x", "128x", "256x", "512x+",
+    ],
+    shaderpacks: [
+      "atmosphere", "bloom", "cartoon", "colored-lighting", "cursed",
+      "fantasy", "foliage", "high", "low", "medium", "path-tracing", "pbr",
+      "potato", "realistic", "reflections", "screenshot", "semi-realistic",
+      "shadows", "vanilla-like",
+    ],
+  };
 
   let tab = $state<"installed" | "browse">("installed");
 
@@ -79,7 +115,23 @@
 
   $effect(() => {
     changed;
+    kind;
     refresh();
+  });
+
+  // Switching folders is a different catalogue and a different list: anything
+  // carried over would describe the folder the user just left.
+  $effect(() => {
+    kind;
+    untrack(() => {
+      selection = new Set();
+      picked = new Set();
+      updates = [];
+      selected = null;
+      hits = [];
+      total = 0;
+      if (!CATEGORIES[kind].includes(category)) category = "";
+    });
   });
 
   // Re-run the search whenever a filter changes; the query itself waits for
@@ -87,6 +139,7 @@
   $effect(() => {
     sort;
     category;
+    kind;
     if (tab === "browse") search(true);
   });
 
@@ -108,7 +161,7 @@
 
   async function refresh() {
     try {
-      mods = await api.listMods(instance.id);
+      mods = await api.listMods(instance.id, kind);
       selection = new Set([...selection].filter((f) => mods.some((m) => m.file === f)));
     } catch (e) {
       notify(errorMessage(e), "error");
@@ -116,7 +169,7 @@
     // Best effort: the folder still lists without the network, the browser
     // just cannot mark anything installed.
     try {
-      installedIds = new Set(await api.installedModProjects(instance.id));
+      installedIds = new Set(await api.installedModProjects(instance.id, kind));
     } catch {
       installedIds = new Set();
     }
@@ -154,7 +207,8 @@
           instance.mc_version,
           sort,
           category || null,
-          collected.length
+          collected.length,
+          kind
         );
         if (id !== run) return; // a newer search replaced this one
 
@@ -182,7 +236,7 @@
     versions = [];
     try {
       selected = await api.modProject(hit.project_id);
-      versions = await api.modVersions(hit.project_id, instance.mc_version);
+      versions = await api.modVersions(hit.project_id, instance.mc_version, kind);
     } catch (e) {
       notify(errorMessage(e), "error");
     }
@@ -205,13 +259,13 @@
     const failed: string[] = [];
     let files = 0;
 
-    task.begin(`Installing ${projects.length} mod${projects.length === 1 ? "" : "s"}`, projects.length);
+    task.begin(`Installing ${projects.length} ${noun(projects.length)}`, projects.length);
     for (const [i, project] of projects.entries()) {
       installing = project;
       const title = hits.find((h) => h.project_id === project)?.title ?? project;
       task.step(title, i);
       try {
-        files += (await api.installMod(instance.id, project, null)).length;
+        files += (await api.installMod(instance.id, kind, project, null)).length;
       } catch (e) {
         failed.push(title);
         notify(errorMessage(e), "error");
@@ -222,16 +276,16 @@
     installing = "";
     picked = new Set();
     const ok = projects.length - failed.length;
-    if (ok) notify(`Installed ${ok} mod${ok === 1 ? "" : "s"} (${files} files).`);
+    if (ok) notify(`Installed ${ok} ${noun(ok)} (${files} files).`);
     if (failed.length) notify(`Could not install: ${failed.join(", ")}.`, "error");
     await refresh();
   }
 
   async function install(project: string, versionId: string | null = null) {
     installing = project;
-    task.begin(`Installing ${selected?.title ?? "mod"}`);
+    task.begin(`Installing ${selected?.title ?? noun(1)}`);
     try {
-      const files = await api.installMod(instance.id, project, versionId);
+      const files = await api.installMod(instance.id, kind, project, versionId);
       notify(
         files.length > 1
           ? `Installed ${files.length} files, dependencies included.`
@@ -249,8 +303,12 @@
   async function checkUpdates() {
     checking = true;
     try {
-      updates = await api.checkModUpdates(instance.id);
-      notify(updates.length ? `${updates.length} mods can be updated.` : "Everything is current.");
+      updates = await api.checkModUpdates(instance.id, kind);
+      notify(
+        updates.length
+          ? `${updates.length} ${noun(updates.length)} can be updated.`
+          : "Everything is current."
+      );
     } catch (e) {
       notify(errorMessage(e), "error");
     } finally {
@@ -261,13 +319,13 @@
   /** Apply the reviewed updates one at a time, reporting each by name. */
   async function applyUpdates(chosen: ModUpdate[]) {
     reviewing = null;
-    task.begin(`Updating ${chosen.length} mod${chosen.length === 1 ? "" : "s"}`, chosen.length);
+    task.begin(`Updating ${chosen.length} ${noun(chosen.length)}`, chosen.length);
     const failed: string[] = [];
 
     for (const [i, update] of chosen.entries()) {
       task.step(`${update.name} → ${update.new_version}`, i);
       try {
-        await api.updateMod(instance.id, update.file, update.version_id);
+        await api.updateMod(instance.id, kind, update.file, update.version_id);
         updates = updates.filter((u) => u.file !== update.file);
       } catch (e) {
         failed.push(update.name);
@@ -277,7 +335,7 @@
 
     task.end();
     const ok = chosen.length - failed.length;
-    if (ok) notify(`Updated ${ok} mod${ok === 1 ? "" : "s"}.`);
+    if (ok) notify(`Updated ${ok} ${noun(ok)}.`);
     await refresh();
   }
 
@@ -295,10 +353,17 @@
     await refresh();
   }
 
-  const toggle = (mod: ModFile) => api.setModEnabled(instance.id, mod.file, !mod.enabled);
-  const remove = (mod: ModFile) => api.deleteMod(instance.id, mod.file);
-  const enable = (mod: ModFile) => api.setModEnabled(instance.id, mod.file, true);
-  const disable = (mod: ModFile) => api.setModEnabled(instance.id, mod.file, false);
+  const toggle = (mod: ModFile) => api.setModEnabled(instance.id, kind, mod.file, !mod.enabled);
+  const remove = (mod: ModFile) => api.deleteMod(instance.id, kind, mod.file);
+  const enable = (mod: ModFile) => api.setModEnabled(instance.id, kind, mod.file, true);
+  const disable = (mod: ModFile) => api.setModEnabled(instance.id, kind, mod.file, false);
+
+  /** "mod" / "resource pack" / "shader", singular or plural, for messages. */
+  function noun(n: number) {
+    const one =
+      kind === "mods" ? "mod" : kind === "resourcepacks" ? "resource pack" : "shader";
+    return n === 1 ? one : `${one}s`;
+  }
 
   function pick(file: string, on: boolean) {
     const next = new Set(selection);
@@ -325,7 +390,15 @@
   }
 </script>
 
-<Modal title="Mods — {instance.name}" {onclose} width="900px">
+<Modal title="{kinds.find(([k]) => k === kind)?.[1] ?? 'Content'} — {instance.name}" {onclose} width="900px">
+  {#if kinds.length > 1}
+    <div class="folders segmented">
+      {#each kinds as [value, text] (value)}
+        <button class:active={kind === value} onclick={() => (kind = value)}>{text}</button>
+      {/each}
+    </div>
+  {/if}
+
   <div class="tabs">
     <!-- One control with two positions, not two buttons: you are always in
          exactly one of these and the switch should look like it. -->
@@ -383,7 +456,11 @@
             checked={selection.has(mod.file)}
             onchange={(e) => pick(mod.file, e.currentTarget.checked)}
           />
-          <span class="slot" aria-hidden="true">{mod.name.slice(0, 1).toUpperCase()}</span>
+          {#if mod.icon}
+            <img src={mod.icon} alt="" width="34" height="34" />
+          {:else}
+            <span class="slot" aria-hidden="true">{mod.name.slice(0, 1).toUpperCase()}</span>
+          {/if}
           <span class="text">
             <strong>{mod.name}</strong>
             <span class="faint data">{mod.version || "unknown version"} · {size(mod.size)}</span>
@@ -416,7 +493,8 @@
         </li>
       {:else}
         <li class="empty faint">
-          No mods yet. Browse Modrinth, or drop a .jar on this window.
+          No {noun(2)} yet. Browse Modrinth, or drop a
+          {kind === "mods" ? ".jar" : ".zip"} on this window.
         </li>
       {/each}
     </ul>
@@ -425,7 +503,7 @@
       <input
         class="query"
         bind:value={query}
-        placeholder="Search Fabric mods for {instance.mc_version}"
+        placeholder="Search {noun(2)} for {instance.mc_version}"
         onkeydown={(e) => e.key === "Enter" && search(true)}
       />
       <select bind:value={sort} aria-label="Sort by">
@@ -435,7 +513,7 @@
       </select>
       <select bind:value={category} aria-label="Category">
         <option value="">All categories</option>
-        {#each CATEGORIES as c (c)}
+        {#each CATEGORIES[kind] as c (c)}
           <option value={c}>{label(c)}</option>
         {/each}
       </select>
@@ -602,6 +680,10 @@
 
   /* A two-position switch cut from one piece: the well holds both, the active
      half is the raised one. */
+  .folders {
+    margin-bottom: 12px;
+  }
+
   .segmented {
     display: flex;
     gap: 2px;
@@ -731,6 +813,7 @@
   }
 
   .hits img,
+  .installed img,
   .sheet-head img {
     border-radius: var(--radius-sm);
     box-shadow: var(--well), 0 0 0 1px rgb(0 0 0 / 0.4);

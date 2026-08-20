@@ -102,10 +102,12 @@ impl Version {
     }
 }
 
-/// One page of Fabric mods for a Minecraft version.
+/// One page of projects of one type for a Minecraft version.
 ///
 /// `sort` is Modrinth's search index: relevance, downloads, follows, newest or
 /// updated. `category` narrows to one of the tag names from `/tag/category`.
+/// `loader` is a category facet too — "fabric" for mods; resource packs and
+/// shaders have no loader to filter on, so they pass None.
 pub async fn search(
     query: &str,
     mc_version: &str,
@@ -113,12 +115,16 @@ pub async fn search(
     category: Option<&str>,
     offset: u32,
     limit: u32,
+    project_type: &str,
+    loader: Option<&str>,
 ) -> Result<SearchPage> {
     let mut facets = vec![
-        r#"["project_type:mod"]"#.to_string(),
-        r#"["categories:fabric"]"#.to_string(),
+        format!(r#"["project_type:{project_type}"]"#),
         format!(r#"["versions:{mc_version}"]"#),
     ];
+    if let Some(loader) = loader {
+        facets.push(format!(r#"["categories:{loader}"]"#));
+    }
     if let Some(category) = category.filter(|c| !c.is_empty()) {
         facets.push(format!(r#"["categories:{category}"]"#));
     }
@@ -135,27 +141,39 @@ pub async fn project(id: &str) -> Result<Project> {
     download::json(&format!("{API}/project/{}", urlencode(id))).await
 }
 
-/// Every Fabric release of a project for one Minecraft version, newest first.
-pub async fn versions(project: &str, mc_version: &str) -> Result<Vec<Version>> {
+/// A JSON array of strings, percent-encoded for a query parameter.
+///
+/// Modrinth tags a build with the loaders that can read it: "fabric" for a
+/// mod, "minecraft" for a resource pack, "iris"/"optifine" for a shader.
+fn json_array(values: &[&str]) -> String {
+    let items: Vec<String> = values.iter().map(|v| format!("\"{v}\"")).collect();
+    urlencode(&format!("[{}]", items.join(",")))
+}
+
+/// Every release of a project for one Minecraft version, newest first.
+pub async fn versions(project: &str, mc_version: &str, loaders: &[&str]) -> Result<Vec<Version>> {
     let url = format!(
-        "{API}/project/{}/version?loaders=%5B%22fabric%22%5D&game_versions=%5B%22{mc_version}%22%5D",
-        urlencode(project)
+        "{API}/project/{}/version?loaders={}&game_versions=%5B%22{mc_version}%22%5D",
+        urlencode(project),
+        json_array(loaders)
     );
     download::json(&url).await
 }
 
 /// The newest version of a project for this Minecraft version, preferring a
 /// full release over a beta or alpha.
-pub async fn latest_version(project: &str, mc_version: &str) -> Result<Version> {
-    let versions = versions(project, mc_version).await?;
+pub async fn latest_version(
+    project: &str,
+    mc_version: &str,
+    loaders: &[&str],
+) -> Result<Version> {
+    let versions = versions(project, mc_version, loaders).await?;
     versions
         .iter()
         .find(|v| v.version_type == "release")
         .or_else(|| versions.first())
         .cloned()
-        .ok_or_else(|| {
-            Error::msg(format!("This mod has no Fabric release for Minecraft {mc_version}."))
-        })
+        .ok_or_else(|| Error::msg(format!("This has no release for Minecraft {mc_version}.")))
 }
 
 pub async fn version(id: &str) -> Result<Version> {
@@ -183,6 +201,7 @@ pub async fn version_files(hashes: &[String]) -> Result<HashMap<String, Version>
 pub async fn updates(
     hashes: &[String],
     mc_version: &str,
+    loaders: &[&str],
 ) -> Result<HashMap<String, Version>> {
     if hashes.is_empty() {
         return Ok(HashMap::new());
@@ -190,7 +209,7 @@ pub async fn updates(
     let body = serde_json::json!({
         "hashes": hashes,
         "algorithm": "sha1",
-        "loaders": ["fabric"],
+        "loaders": loaders,
         "game_versions": [mc_version],
     });
     download::post_json(&format!("{API}/version_files/update"), &body).await
@@ -212,12 +231,18 @@ fn urlencode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::urlencode;
+    use super::*;
 
     #[test]
     fn encodes_what_a_facet_string_contains() {
         assert_eq!(urlencode("sodium"), "sodium");
         assert_eq!(urlencode("just enough items"), "just+enough+items");
         assert_eq!(urlencode(r#"[["a:b"]]"#), "%5B%5B%22a%3Ab%22%5D%5D");
+    }
+
+    #[test]
+    fn loader_arrays_encode_as_modrinth_expects() {
+        assert_eq!(json_array(&["fabric"]), "%5B%22fabric%22%5D");
+        assert_eq!(json_array(&["iris", "optifine"]), "%5B%22iris%22%2C%22optifine%22%5D");
     }
 }
