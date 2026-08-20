@@ -13,7 +13,7 @@
 
 use crate::download::{self, Job};
 use crate::error::{Error, Result};
-use crate::instance;
+use crate::instance::{self, Loader};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::AppHandle;
@@ -62,9 +62,12 @@ impl Kind {
     /// the live API: a resource pack build is "minecraft", a shader is both
     /// "iris" and "optifine" — Iris reads OptiFine shaders, so neither can be
     /// dropped without hiding most of the catalogue.
-    pub fn loaders(self) -> &'static [&'static str] {
+    ///
+    /// Mods are the instance's business rather than the folder's, so they come
+    /// from `Loader::mod_loaders`: a Quilt instance runs Fabric mods too.
+    pub fn loaders(self, loader: Loader) -> &'static [&'static str] {
         match self {
-            Kind::Mods => &["fabric"],
+            Kind::Mods => loader.mod_loaders(),
             Kind::Resourcepacks => &["minecraft"],
             Kind::Shaderpacks => &["iris", "optifine"],
         }
@@ -402,7 +405,9 @@ pub async fn check_updates(id: &str, kind: Kind) -> Result<Vec<ModUpdate>> {
         .map(|m| m.sha1.clone())
         .filter(|h| !h.is_empty())
         .collect();
-    let newest = crate::modrinth::updates(&hashes, &instance.mc_version, kind.loaders()).await?;
+    let newest =
+        crate::modrinth::updates(&hashes, &instance.mc_version, kind.loaders(instance.loader))
+            .await?;
 
     Ok(installed
         .into_iter()
@@ -450,7 +455,7 @@ pub async fn update_to(
 
 #[cfg(test)]
 mod tests {
-    use super::{Kind, base64, checked_name, icon_path};
+    use super::{Kind, Loader, base64, checked_name, icon_path};
 
     #[test]
     fn each_folder_knows_its_extension_and_modrinth_names() {
@@ -462,7 +467,10 @@ mod tests {
         assert_eq!(Kind::Resourcepacks.extension(), ".zip");
         assert_eq!(Kind::Resourcepacks.project_type(), "resourcepack");
         assert_eq!(Kind::Shaderpacks.project_type(), "shader");
-        assert_eq!(Kind::Resourcepacks.loaders(), ["minecraft"]);
+        assert_eq!(Kind::Resourcepacks.loaders(Loader::Vanilla), ["minecraft"]);
+        // Quilt runs Fabric mods; asking for "quilt" alone hides most of them.
+        assert_eq!(Kind::Mods.loaders(Loader::Quilt), ["quilt", "fabric"]);
+        assert_eq!(Kind::Mods.loaders(Loader::Fabric), ["fabric"]);
         assert!(Kind::Mods.installs_dependencies());
         assert!(!Kind::Shaderpacks.installs_dependencies());
     }

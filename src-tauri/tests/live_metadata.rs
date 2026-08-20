@@ -6,7 +6,7 @@
 //! are the parts that break silently against real-world metadata.
 
 use justlauncher_lib::auth::offline_account;
-use justlauncher_lib::fabric;
+use justlauncher_lib::loader;
 use justlauncher_lib::install::{classpath, resolve};
 use justlauncher_lib::instance::{Instance, Loader};
 use justlauncher_lib::launch::build_command;
@@ -79,14 +79,18 @@ async fn legacy_vanilla_uses_flat_argument_string() {
 
 #[tokio::test]
 #[ignore]
-async fn fabric_profile_merges_onto_vanilla() {
-    let loader = fabric::latest_loader("1.21.4").await.expect("fabric loader");
-    let args = check(instance("1.21.4", Loader::Fabric, &loader)).await;
-    assert!(
-        args.iter().any(|a| a.contains("knot")),
-        "Fabric should replace the main class with its Knot launcher"
-    );
-    println!("fabric loader {loader}: {}", args.join(" "));
+async fn loader_profiles_merge_onto_vanilla() {
+    // Both loaders merge the same way and both launch through Knot, so the one
+    // check covers the pair; a Quilt-only regression would show up here.
+    for kind in [Loader::Fabric, Loader::Quilt] {
+        let version = loader::latest_loader(kind, "1.21.4").await.expect("a loader build");
+        let args = check(instance("1.21.4", kind, &version)).await;
+        assert!(
+            args.iter().any(|a| a.contains("knot")),
+            "{kind:?} should replace the main class with its Knot launcher"
+        );
+        println!("{kind:?} loader {version}: {}", args.join(" "));
+    }
 }
 
 /// The three asset layouts Minecraft has used. Getting these wrong is silent:
@@ -133,8 +137,8 @@ async fn legacy_asset_layouts_are_detected() {
 #[tokio::test]
 #[ignore = "network"]
 async fn fabric_reports_no_loaders_for_an_unsupported_version() {
-    assert!(justlauncher_lib::fabric::loaders("1.12.2").await.unwrap().is_empty());
-    assert!(!justlauncher_lib::fabric::loaders("1.21.1").await.unwrap().is_empty());
+    assert!(loader::loaders(Loader::Fabric, "1.12.2").await.unwrap().is_empty());
+    assert!(!loader::loaders(Loader::Fabric, "1.21.1").await.unwrap().is_empty());
 }
 
 /// Modrinth search and version resolution, against the real API.
@@ -143,7 +147,7 @@ async fn fabric_reports_no_loaders_for_an_unsupported_version() {
 async fn modrinth_finds_a_fabric_mod_and_its_jar() {
     use justlauncher_lib::modrinth;
 
-    let page = modrinth::search("sodium", "1.21.1", "relevance", None, 0, 5, "mod", Some("fabric"))
+    let page = modrinth::search("sodium", "1.21.1", "relevance", None, 0, 5, "mod", &["fabric"])
         .await
         .unwrap();
     assert!(!page.hits.is_empty(), "sodium should be findable for 1.21.1");
@@ -179,7 +183,7 @@ async fn modrinth_search_sort_and_update_check() {
         0,
         5,
         "mod",
-        Some("fabric"),
+        &["fabric"],
     )
     .await
     .unwrap();
@@ -250,12 +254,12 @@ async fn modrinth_serves_resource_packs_and_shaders() {
     use justlauncher_lib::modrinth;
 
     for kind in [Kind::Resourcepacks, Kind::Shaderpacks] {
-        let page = modrinth::search("", "1.21.1", "downloads", None, 0, 5, kind.project_type(), None)
+        let page = modrinth::search("", "1.21.1", "downloads", None, 0, 5, kind.project_type(), &[])
             .await
             .unwrap();
         assert!(!page.hits.is_empty(), "no {} for 1.21.1", kind.project_type());
 
-        let versions = modrinth::versions(&page.hits[0].project_id, "1.21.1", kind.loaders())
+        let versions = modrinth::versions(&page.hits[0].project_id, "1.21.1", kind.loaders(Loader::Vanilla))
             .await
             .unwrap();
         assert!(!versions.is_empty(), "{} has no build for 1.21.1", page.hits[0].slug);
@@ -265,4 +269,34 @@ async fn modrinth_serves_resource_packs_and_shaders() {
         assert!(file.filename.to_lowercase().ends_with(".zip"), "got {}", file.filename);
         assert!(file.hashes.sha1.is_some());
     }
+}
+
+/// Quilt, whose metadata is the same shape as Fabric's but differs in the
+/// three details `loader.rs` documents: 404 rather than 400 for a version it
+/// never supported, no `stable` flag, and an unordered list.
+#[tokio::test]
+#[ignore = "network"]
+async fn quilt_lists_loaders_and_publishes_a_profile() {
+    // Never supported: an answer, not a failure.
+    assert!(loader::loaders(Loader::Quilt, "1.12.2").await.unwrap().is_empty());
+
+    let list = loader::loaders(Loader::Quilt, "1.21.1").await.unwrap();
+    assert!(!list.is_empty(), "quilt supports 1.21.1");
+    // Quilt does not sort its own list, so this asserts ours is sorted: taking
+    // the server's first entry pinned an old beta.
+    let newest = &list[0].version;
+    assert!(
+        list.iter().all(|l| l.version.as_str() <= newest.as_str() || l.version.contains('-')),
+        "list is not newest-first: {newest} then {}",
+        list[1].version
+    );
+    // Quilt flags nothing as recommended, and none is invented for it.
+    assert!(list.iter().all(|l| !l.stable));
+
+    let version = loader::latest_loader(Loader::Quilt, "1.21.1").await.unwrap();
+    let profile = loader::profile(Loader::Quilt, "1.21.1", &version).await.unwrap();
+    assert_eq!(profile.id, format!("quilt-loader-{version}-1.21.1"));
+    assert_eq!(profile.inherits_from.as_deref(), Some("1.21.1"));
+    assert!(profile.main_class.contains("quilt"), "got {}", profile.main_class);
+    assert!(!profile.libraries.is_empty());
 }

@@ -5,7 +5,7 @@ use crate::download::{self, Job};
 use crate::error::{Error, Result};
 use crate::instance::{Instance, Loader};
 use crate::mojang::{self, VersionJson};
-use crate::{fabric, paths};
+use crate::{loader, paths};
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
@@ -26,20 +26,23 @@ async fn vanilla_version(mc_version: &str) -> Result<VersionJson> {
     mojang::version_json(&entry.id, &entry.url).await
 }
 
-/// The fully merged version json an instance launches. For Fabric this is the
-/// loader profile stacked on top of the vanilla version it inherits from.
+/// The fully merged version json an instance launches. For a modded instance
+/// this is the loader profile stacked on top of the vanilla version it
+/// inherits from -- the same shape for Fabric and Quilt.
 pub async fn resolve(instance: &Instance) -> Result<VersionJson> {
     let vanilla = vanilla_version(&instance.mc_version).await?;
-    match instance.loader {
-        Loader::Vanilla => Ok(vanilla),
-        Loader::Fabric => {
-            if instance.loader_version.is_empty() {
-                return Err(Error::msg("Fabric loader version not selected yet."));
-            }
-            let child = fabric::profile(&instance.mc_version, &instance.loader_version).await?;
-            Ok(mojang::merge(vanilla, child))
-        }
+    if instance.loader == Loader::Vanilla {
+        return Ok(vanilla);
     }
+    if instance.loader_version.is_empty() {
+        return Err(Error::msg(format!(
+            "{} loader version not selected yet.",
+            instance.loader.label()
+        )));
+    }
+    let child =
+        loader::profile(instance.loader, &instance.mc_version, &instance.loader_version).await?;
+    Ok(mojang::merge(vanilla, child))
 }
 
 /// Classpath entries and native archives for a resolved version.
@@ -146,8 +149,9 @@ fn write_named_assets(index: &mojang::AssetIndex, dest: &Path) -> Result<()> {
 /// Download everything the instance needs and prepare its natives directory.
 /// Safe to re-run: existing valid files are skipped.
 pub async fn install(app: &AppHandle, instance: &mut Instance) -> Result<VersionJson> {
-    if instance.loader == Loader::Fabric && instance.loader_version.is_empty() {
-        instance.loader_version = fabric::latest_loader(&instance.mc_version).await?;
+    if instance.loader != Loader::Vanilla && instance.loader_version.is_empty() {
+        instance.loader_version =
+            loader::latest_loader(instance.loader, &instance.mc_version).await?;
         instance.save().await?;
     }
 

@@ -10,12 +10,43 @@ use std::path::PathBuf;
 
 const CONFIG_NAME: &str = "instance.json";
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Loader {
     #[default]
     Vanilla,
     Fabric,
+    Quilt,
+}
+
+impl Loader {
+    /// The prefix both loaders use for the profile they publish, which is also
+    /// the version id an instance launches.
+    fn profile_prefix(self) -> &'static str {
+        match self {
+            Loader::Vanilla => "",
+            Loader::Fabric => "fabric-loader",
+            Loader::Quilt => "quilt-loader",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Loader::Vanilla => "Vanilla",
+            Loader::Fabric => "Fabric",
+            Loader::Quilt => "Quilt",
+        }
+    }
+
+    /// Modrinth's loader tags for mods this instance can run. Quilt loads
+    /// Fabric mods, so both are asked for -- Quilt alone returns a quarter of
+    /// the catalogue.
+    pub fn mod_loaders(self) -> &'static [&'static str] {
+        match self {
+            Loader::Quilt => &["quilt", "fabric"],
+            _ => &["fabric"],
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -77,12 +108,17 @@ impl Instance {
         self.dir().join("natives")
     }
 
-    /// The version id this instance actually launches — for Fabric that is the
-    /// loader profile, not the plain Minecraft version.
+    /// The version id this instance actually launches — for a modded instance
+    /// that is the loader profile, not the plain Minecraft version.
     pub fn version_id(&self) -> String {
         match self.loader {
             Loader::Vanilla => self.mc_version.clone(),
-            Loader::Fabric => format!("fabric-loader-{}-{}", self.loader_version, self.mc_version),
+            loader => format!(
+                "{}-{}-{}",
+                loader.profile_prefix(),
+                self.loader_version,
+                self.mc_version
+            ),
         }
     }
 
@@ -216,6 +252,9 @@ mod tests {
             installed: false,
         };
         assert_eq!(i.version_id(), "1.21");
+        i.loader = Loader::Quilt;
+        i.loader_version = "0.24.0".into();
+        assert_eq!(i.version_id(), "quilt-loader-0.24.0-1.21");
         i.loader = Loader::Fabric;
         i.loader_version = "0.16.0".into();
         assert_eq!(i.version_id(), "fabric-loader-0.16.0-1.21");

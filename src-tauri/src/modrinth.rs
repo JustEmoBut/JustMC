@@ -106,8 +106,9 @@ impl Version {
 ///
 /// `sort` is Modrinth's search index: relevance, downloads, follows, newest or
 /// updated. `category` narrows to one of the tag names from `/tag/category`.
-/// `loader` is a category facet too — "fabric" for mods; resource packs and
-/// shaders have no loader to filter on, so they pass None.
+/// `loaders` are category facets too, OR'd together inside one facet: a Quilt
+/// instance asks for quilt *or* fabric because it runs both. Resource packs and
+/// shaders have no loader to filter on and pass an empty slice.
 pub async fn search(
     query: &str,
     mc_version: &str,
@@ -116,14 +117,15 @@ pub async fn search(
     offset: u32,
     limit: u32,
     project_type: &str,
-    loader: Option<&str>,
+    loaders: &[&str],
 ) -> Result<SearchPage> {
     let mut facets = vec![
         format!(r#"["project_type:{project_type}"]"#),
         format!(r#"["versions:{mc_version}"]"#),
     ];
-    if let Some(loader) = loader {
-        facets.push(format!(r#"["categories:{loader}"]"#));
+    if !loaders.is_empty() {
+        let any: Vec<String> = loaders.iter().map(|l| format!(r#""categories:{l}""#)).collect();
+        facets.push(format!("[{}]", any.join(",")));
     }
     if let Some(category) = category.filter(|c| !c.is_empty()) {
         facets.push(format!(r#"["categories:{category}"]"#));
@@ -238,6 +240,15 @@ mod tests {
         assert_eq!(urlencode("sodium"), "sodium");
         assert_eq!(urlencode("just enough items"), "just+enough+items");
         assert_eq!(urlencode(r#"[["a:b"]]"#), "%5B%5B%22a%3Ab%22%5D%5D");
+    }
+
+    #[test]
+    fn several_loaders_become_one_or_facet() {
+        // Modrinth ORs the entries inside one facet and ANDs the facets, so
+        // both tags have to live in the same bracket pair.
+        let any: Vec<String> =
+            ["quilt", "fabric"].iter().map(|l| format!(r#""categories:{l}""#)).collect();
+        assert_eq!(format!("[{}]", any.join(",")), r#"["categories:quilt","categories:fabric"]"#);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 <script lang="ts">
   import * as actions from "./actions";
-  import { type Instance } from "./api";
+  import { loaderName, type Instance } from "./api";
   import BlockIcon from "./BlockIcon.svelte";
   import Icon from "./Icon.svelte";
 
@@ -79,11 +79,11 @@
     <BlockIcon
       name={instance.name}
       size={56}
-      fabric={instance.loader === "fabric"}
+      fabric={instance.loader !== "vanilla"}
     />
     <h2>{instance.name}</h2>
     <p class="data">
-      {instance.mc_version} · {instance.loader === "fabric" ? "Fabric" : "Vanilla"}
+      {instance.mc_version} · {loaderName(instance.loader)}
     </p>
   </div>
 

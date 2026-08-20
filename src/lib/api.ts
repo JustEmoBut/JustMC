@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type Loader = "vanilla" | "fabric";
+export type Loader = "vanilla" | "fabric" | "quilt";
+
+/** Human label for a loader; "Vanilla" is what an unmodded instance is called. */
+export function loaderName(loader: Loader) {
+  return loader === "fabric" ? "Fabric" : loader === "quilt" ? "Quilt" : "Vanilla";
+}
 
 /** Which instance folder a mods call acts on; the values are the folder names. */
 export type ModKind = "mods" | "resourcepacks" | "shaderpacks";
@@ -133,8 +138,8 @@ export interface ModUpdate {
 
 export const api = {
   listVersions: () => invoke<VersionList>("list_versions"),
-  listFabricLoaders: (mcVersion: string) =>
-    invoke<FabricLoader[]>("list_fabric_loaders", { mcVersion }),
+  listLoaders: (mcVersion: string, loader: Loader) =>
+    invoke<FabricLoader[]>("list_loaders", { mcVersion, loader }),
 
   listInstances: () => invoke<Instance[]>("list_instances"),
   createInstance: (name: string, mcVersion: string, loader: Loader) =>
@@ -175,11 +180,21 @@ export const api = {
     sort: string,
     category: string | null,
     offset: number,
-    kind: ModKind
-  ) => invoke<ModSearchPage>("search_mods", { query, mcVersion, sort, category, offset, kind }),
+    kind: ModKind,
+    loader: Loader
+  ) =>
+    invoke<ModSearchPage>("search_mods", {
+      query,
+      mcVersion,
+      sort,
+      category,
+      offset,
+      kind,
+      loader,
+    }),
   modProject: (id: string) => invoke<ModProject>("mod_project", { id }),
-  modVersions: (project: string, mcVersion: string, kind: ModKind) =>
-    invoke<ModVersion[]>("mod_versions", { project, mcVersion, kind }),
+  modVersions: (project: string, mcVersion: string, kind: ModKind, loader: Loader) =>
+    invoke<ModVersion[]>("mod_versions", { project, mcVersion, kind, loader }),
   /** Installs the file plus, for mods, its required dependencies; returns every file added. */
   installMod: (id: string, kind: ModKind, project: string, versionId: string | null) =>
     invoke<string[]>("install_mod", { id, kind, project, versionId }),

@@ -5,8 +5,9 @@
 //! itself. Nothing is bundled that Modrinth can serve, which is why importing
 //! one is mostly downloading.
 //!
-//! Only vanilla and Fabric packs are supported; a Forge or Quilt pack is
-//! rejected here rather than failing at launch with an unreadable Java error.
+//! Only the loaders the launcher can install are accepted; a Forge or NeoForge
+//! pack is rejected here rather than failing at launch with an unreadable Java
+//! error.
 
 use crate::download::{self, Job};
 use crate::error::{Error, Result};
@@ -78,17 +79,21 @@ fn loader_of(deps: &HashMap<String, String>) -> Result<(String, Loader, String)>
         .ok_or_else(|| Error::msg("Pack does not say which Minecraft version it is for."))?
         .clone();
 
-    for unsupported in ["forge", "neoforge", "quilt-loader"] {
+    for unsupported in ["forge", "neoforge"] {
         if deps.contains_key(unsupported) {
             return Err(Error::msg(format!(
-                "This is a {unsupported} pack. JustLauncher only launches vanilla and Fabric."
+                "This is a {unsupported} pack. JustLauncher launches vanilla, Fabric and Quilt."
             )));
         }
     }
-    match deps.get("fabric-loader") {
-        Some(v) => Ok((mc, Loader::Fabric, v.clone())),
-        None => Ok((mc, Loader::Vanilla, String::new())),
+    // Quilt first: a pack that names both is a Quilt pack that also runs the
+    // Fabric mods it lists.
+    for (key, loader) in [("quilt-loader", Loader::Quilt), ("fabric-loader", Loader::Fabric)] {
+        if let Some(v) = deps.get(key) {
+            return Ok((mc, loader, v.clone()));
+        }
     }
+    Ok((mc, Loader::Vanilla, String::new()))
 }
 
 /// Extract the pack into a new instance and download everything it lists.
@@ -207,8 +212,25 @@ mod tests {
     }
 
     #[test]
+    fn quilt_packs_are_accepted_and_win_over_a_fabric_entry() {
+        let (_, loader, version) =
+            loader_of(&deps(&[("minecraft", "1.21.1"), ("quilt-loader", "0.24.0")])).unwrap();
+        assert_eq!(loader, Loader::Quilt);
+        assert_eq!(version, "0.24.0");
+
+        // Quilt runs Fabric mods, so a pack naming both is a Quilt pack.
+        let (_, loader, _) = loader_of(&deps(&[
+            ("minecraft", "1.21.1"),
+            ("quilt-loader", "0.24.0"),
+            ("fabric-loader", "0.16.0"),
+        ]))
+        .unwrap();
+        assert_eq!(loader, Loader::Quilt);
+    }
+
+    #[test]
     fn other_loaders_are_refused_before_anything_is_created() {
-        for l in ["forge", "neoforge", "quilt-loader"] {
+        for l in ["forge", "neoforge"] {
             assert!(loader_of(&deps(&[("minecraft", "1.20.1"), (l, "1.0")])).is_err(), "{l}");
         }
         assert!(loader_of(&deps(&[("fabric-loader", "0.16.0")])).is_err());

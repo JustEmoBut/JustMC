@@ -45,7 +45,7 @@
     ["shaderpacks", "Shaders"],
   ] as const;
   const kinds = $derived(
-    instance.loader === "fabric" ? KINDS : KINDS.filter(([k]) => k !== "mods")
+    instance.loader === "vanilla" ? KINDS.filter(([k]) => k !== "mods") : KINDS
   );
 
   /** Modrinth's search indices, in the order the picker offers them. */
@@ -208,7 +208,8 @@
           sort,
           category || null,
           collected.length,
-          kind
+          kind,
+          instance.loader
         );
         if (id !== run) return; // a newer search replaced this one
 
@@ -236,7 +237,7 @@
     versions = [];
     try {
       selected = await api.modProject(hit.project_id);
-      versions = await api.modVersions(hit.project_id, instance.mc_version, kind);
+      versions = await api.modVersions(hit.project_id, instance.mc_version, kind, instance.loader);
     } catch (e) {
       notify(errorMessage(e), "error");
     }

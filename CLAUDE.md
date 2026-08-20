@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Minecraft launcher: Rust + Tauri 2 backend, Svelte 5 + Vite frontend. A
 clean-slate rewrite of a Qt/C++ Prism Launcher fork; it does **not** read
-Prism/MultiMC data. Scope is vanilla and Fabric launching, plus the mods folder
+Prism/MultiMC data. Scope is vanilla, Fabric and Quilt launching, plus the mods folder
 of a Fabric instance, installing mods from Modrinth and importing a Modrinth
 modpack — see README for what is deliberately out of scope.
 
@@ -125,13 +125,33 @@ The messiest domain, because Minecraft's format changed repeatedly:
 - **Assets**: three layouts. Modern reads the hash store directly; `virtual`
   (1.6–1.7.2) and `map_to_resources` (≤1.5.2) need a named-file tree built by
   `install::write_named_assets`.
-- **Fabric** is a profile that inherits from a vanilla version. `mojang::merge`
-  stacks it; child libraries go **first** so a patched copy shadows vanilla's.
-  meta.fabricmc.net answers **400** for a Minecraft version Fabric never
-  supported: that is an answer ("no loaders"), not a failure, and `fabric::loaders`
-  translates it so the UI can say so before an instance is created. Its `stable`
-  flag marks the **single** build Fabric currently recommends — every other
-  loader is flagged false, so never present those as "unstable".
+- **Fabric and Quilt** are profiles that inherit from a vanilla version.
+  `mojang::merge` stacks one; child libraries go **first** so a patched copy
+  shadows vanilla's. Forge is out because it patches the client jar instead,
+  which is a different job entirely.
+
+### Loaders (`loader.rs`)
+
+Fabric and Quilt publish the same shape of metadata and share one module. They
+differ in three details, each verified against the live API and each a real bug
+if assumed away:
+
+- **"never supported" is a different status.** Fabric answers **400**, Quilt
+  **404**. Both are answers ("no loaders"), not failures, so the UI can say so
+  before an instance is created.
+- **Fabric's `stable` flag marks the single build it recommends** — every other
+  loader is flagged false, so never present those as "unstable". Quilt publishes
+  no such flag and means it: it ships betas as its normal channel, so a Quilt
+  instance takes the **newest** build and the picker labels nothing recommended.
+  Deriving "stable" from the absence of `-beta` would pin a build months behind.
+- **Quilt's list is unordered.** Fabric returns newest first; Quilt returned
+  `0.20.0-beta.9, 0.20.0-beta.7, …, 0.24.0`, so `loaders` sorts both.
+
+Which Modrinth loader tags a mod search uses belongs to the **instance**, not
+the folder: `Loader::mod_loaders` asks for `quilt` *and* `fabric` on a Quilt
+instance, because Quilt runs Fabric mods and asking for `quilt` alone returned
+4.6k of the 18.5k mods available for 1.21.1. Modrinth ORs the entries inside one
+facet and ANDs the facets, so both tags must share one bracket pair.
 
 ### Instance archives (`pack.rs`, `mrpack.rs`)
 

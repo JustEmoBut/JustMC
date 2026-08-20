@@ -5,6 +5,7 @@
     api,
     errorMessage,
     type FabricLoader,
+    loaderName,
     type Instance,
     type JavaInstall,
     type ManifestVersion,
@@ -56,8 +57,8 @@
   const shownVersions = $derived(
     versions.filter((v) => showSnapshots || v.type === "release" || v.id === instance.mc_version)
   );
-  const fabricUnsupported = $derived(
-    draft.loader === "fabric" && changedVersion && loaders.length === 0
+  const loaderUnsupported = $derived(
+    draft.loader !== "vanilla" && changedVersion && loaders.length === 0
   );
 
   $effect(() => {
@@ -67,14 +68,15 @@
   });
 
   // The loader list is per Minecraft version, so it has to follow the draft,
-  // not the saved instance: picking a version Fabric never supported must show
-  // up here rather than at install time.
+  // not the saved instance: picking a version the loader never supported must
+  // show up here rather than at install time.
   $effect(() => {
-    if (draft.loader !== "fabric") return;
+    if (draft.loader === "vanilla") return;
     const version = draft.mc_version;
+    const loader = draft.loader;
     let current = true;
     api
-      .listFabricLoaders(version)
+      .listLoaders(version, loader)
       .then((list) => current && (loaders = list))
       .catch(() => current && (loaders = []));
     return () => (current = false);
@@ -138,8 +140,10 @@
       <input type="checkbox" bind:checked={showSnapshots} />
       Show snapshots
     </label>
-    {#if fabricUnsupported}
-      <p class="warn">Fabric has no loader for {draft.mc_version}. Pick another version.</p>
+    {#if loaderUnsupported}
+      <p class="warn">
+        {loaderName(draft.loader)} has no loader for {draft.mc_version}. Pick another version.
+      </p>
     {:else if changedVersion}
       <p class="warn">
         The new version downloads on the next launch. Worlds and configs stay,
@@ -164,13 +168,14 @@
     </p>
   </div>
 
-  {#if draft.loader === "fabric"}
+  {#if draft.loader !== "vanilla"}
     <div class="field">
-      <label for="s-loader">Fabric loader</label>
+      <label for="s-loader">{loaderName(draft.loader)} loader</label>
       <select id="s-loader" bind:value={draft.loader_version}>
-        <option value="">Latest stable</option>
+        <option value="">{draft.loader === "quilt" ? "Latest" : "Latest stable"}</option>
         <!-- Fabric's `stable` flag marks the one build it currently recommends,
-             not a quality judgement on the rest, which are simply older. -->
+             not a quality judgement on the rest, which are simply older. Quilt
+             publishes no such flag, so nothing there is labelled. -->
         {#each loaders as l (l.version)}
           <option value={l.version}>{l.version}{l.stable ? " · recommended" : ""}</option>
         {/each}
@@ -200,7 +205,11 @@
   <div class="meta">
     <span>Minecraft {instance.mc_version}</span>
     <span>{playTime(instance.play_time)}</span>
-    <span>{instance.loader === "fabric" ? `Fabric ${instance.loader_version || ""}` : "Vanilla"}</span>
+    <span>
+      {instance.loader === "vanilla"
+        ? "Vanilla"
+        : `${loaderName(instance.loader)} ${instance.loader_version || ""}`}
+    </span>
   </div>
 
   {#snippet footer()}
@@ -215,7 +224,7 @@
       </button>
       <span class="spacer"></span>
       <button onclick={onclose}>Cancel</button>
-      <button class="primary" onclick={save} disabled={fabricUnsupported}>Save</button>
+      <button class="primary" onclick={save} disabled={loaderUnsupported}>Save</button>
     {/if}
   {/snippet}
 </Modal>

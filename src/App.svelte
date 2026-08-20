@@ -6,6 +6,7 @@
   import {
     api,
     errorMessage,
+    loaderName,
     type Account,
     type Instance,
     type ModKind,
@@ -206,7 +207,7 @@
    * a vanilla instance has no loader, so it never starts on mods.
    */
   function openContent(instance: Instance) {
-    modsKind = instance.loader === "fabric" ? "mods" : "resourcepacks";
+    modsKind = instance.loader === "vanilla" ? "resourcepacks" : "mods";
     managingMods = instance;
   }
 
@@ -244,7 +245,7 @@
           icon: "sliders",
           action: () => openContent(instance),
         },
-        ...(instance.loader === "fabric"
+        ...(instance.loader !== "vanilla"
           ? [
               {
                 label: "Mods Folder",
@@ -437,7 +438,7 @@
     {#if selected}
       <span>Minecraft {selected.mc_version}</span>
       <span class="sep">·</span>
-      <span>{selected.loader === "fabric" ? "Fabric" : "Vanilla"}</span>
+      <span>{loaderName(selected.loader)}</span>
       <span class="sep">·</span>
       <span>{selected.memory_mb} MB</span>
       {#if selected.java_path}

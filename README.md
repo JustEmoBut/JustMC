@@ -19,7 +19,7 @@ Chromium is bundled.
 
 - Microsoft account sign-in (OAuth device code flow) and offline accounts
 - Full vanilla version list, releases and snapshots, back to the oldest versions
-- Fabric loader, with the loader version pinnable per instance
+- Fabric and Quilt loaders, with the loader version pinnable per instance
 - Create, configure, delete instances; per-instance memory, Java and JVM args
 - Parallel downloading with SHA-1 verification, resumable across runs, live
   transfer rate and ETA
@@ -47,8 +47,7 @@ Chromium is bundled.
 
 ## Not included
 
-CurseForge, world manager, custom themes, Forge/NeoForge/Quilt, skin
-management.
+CurseForge, world manager, custom themes, Forge/NeoForge, skin management.
 
 CurseForge is absent for a reason rather than an oversight: its API needs a
 per-launcher key that cannot be shipped in an open source build, and it lets
@@ -93,7 +92,7 @@ src-tauri/src/
   java.rs           JVM discovery and version matching
   jre.rs            downloading Mojang's Java runtimes
   download.rs       parallel fetcher with checksum verification
-  fabric.rs         Fabric loader metadata
+  loader.rs         Fabric and Quilt loader metadata
   settings.rs       launcher-wide preferences and new-instance defaults
   pack.rs           instance export/import archives, duplication
   mrpack.rs         Modrinth modpack (.mrpack) import

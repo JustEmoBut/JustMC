@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, errorMessage, type Loader, type ManifestVersion } from "./api";
+  import { api, errorMessage, loaderName, type Loader, type ManifestVersion } from "./api";
   import Modal from "./Modal.svelte";
   import { task } from "./task.svelte";
   import { notify } from "./toast.svelte";
@@ -15,9 +15,9 @@
   let busy = $state(false);
   /** True once the user edits the name, so we stop auto-filling it. */
   let nameTouched = $state(false);
-  /** Fabric support for the selected version: null while in flight, "unknown"
+  /** Loader support for the selected version: null while in flight, "unknown"
       when the meta server could not be reached. */
-  let fabricOk = $state<boolean | "unknown" | null>(null);
+  let loaderOk = $state<boolean | "unknown" | null>(null);
 
   const shown = $derived(
     versions.filter((v) => showSnapshots || v.type === "release")
@@ -34,23 +34,24 @@
     if (!nameTouched) name = selected ? `Minecraft ${selected}` : "";
   });
 
-  // Fabric does not cover every Minecraft version, and the meta server is the
+  // Neither loader covers every Minecraft version, and its meta server is the
   // only authority on which. Ask before letting the user create an instance
   // that could only fail at install time.
   $effect(() => {
     const version = selected;
-    if (loader !== "fabric" || !version) {
-      fabricOk = null;
+    const chosen = loader;
+    if (chosen === "vanilla" || !version) {
+      loaderOk = null;
       return;
     }
-    fabricOk = null;
+    loaderOk = null;
     let current = true;
     api
-      .listFabricLoaders(version)
-      .then((list) => current && (fabricOk = list.length > 0))
-      // A blip on meta.fabricmc.net must not read as "unsupported"; let the
-      // user through and leave the real error to install time.
-      .catch(() => current && (fabricOk = "unknown"));
+      .listLoaders(version, chosen)
+      .then((list) => current && (loaderOk = list.length > 0))
+      // A blip on the meta server must not read as "unsupported"; let the user
+      // through and leave the real error to install time.
+      .catch(() => current && (loaderOk = "unknown"));
     return () => (current = false);
   });
 
@@ -125,7 +126,7 @@
   <div class="field">
     <label for="loader">Mod loader</label>
     <div class="segmented" id="loader">
-      {#each [["vanilla", "Vanilla"], ["fabric", "Fabric"]] as [value, text] (value)}
+      {#each [["vanilla", "Vanilla"], ["fabric", "Fabric"], ["quilt", "Quilt"]] as [value, text] (value)}
         <button
           class:active={loader === value}
           onclick={() => (loader = value as Loader)}
@@ -136,10 +137,12 @@
     </div>
   </div>
 
-  {#if loader === "fabric" && fabricOk === false}
-    <p class="warn">Fabric has no loader for Minecraft {selected}. Pick another version.</p>
-  {:else if loader === "fabric" && fabricOk === "unknown"}
-    <p class="warn">Could not reach the Fabric meta server; support is unverified.</p>
+  {#if loader !== "vanilla" && loaderOk === false}
+    <p class="warn">
+      {loaderName(loader)} has no loader for Minecraft {selected}. Pick another version.
+    </p>
+  {:else if loader !== "vanilla" && loaderOk === "unknown"}
+    <p class="warn">Could not reach the {loaderName(loader)} meta server; support is unverified.</p>
   {/if}
 
   <div class="field">
@@ -168,8 +171,8 @@
     <button
       class="primary"
       onclick={create}
-      disabled={busy || loading || !name.trim() || (loader === "fabric" && fabricOk === null) ||
-        (loader === "fabric" && fabricOk === false)}
+      disabled={busy || loading || !name.trim() ||
+        (loader !== "vanilla" && (loaderOk === null || loaderOk === false))}
     >
       {busy ? "Creating…" : "Create"}
     </button>

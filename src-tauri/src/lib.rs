@@ -1,7 +1,7 @@
 // Public so the integration tests in `tests/` can drive version resolution and
 // argument building against the real metadata services.
 pub mod auth;
-pub mod fabric;
+pub mod loader;
 pub mod install;
 pub mod instance;
 pub mod jre;
@@ -40,8 +40,11 @@ async fn list_versions() -> Result<VersionList> {
 }
 
 #[tauri::command]
-async fn list_fabric_loaders(mc_version: String) -> Result<Vec<fabric::LoaderInfo>> {
-    fabric::loaders(&mc_version).await
+async fn list_loaders(
+    mc_version: String,
+    loader: Loader,
+) -> Result<Vec<loader::LoaderInfo>> {
+    loader::loaders(loader, &mc_version).await
 }
 
 // ------------------------------------------------------------------ instances
@@ -222,10 +225,11 @@ async fn search_mods(
     category: Option<String>,
     offset: u32,
     kind: mods::Kind,
+    loader: Loader,
 ) -> Result<modrinth::SearchPage> {
     // Only mods narrow by loader; a resource pack or shader has none to filter
     // on, and adding one there returns an empty catalogue.
-    let loader = (kind == mods::Kind::Mods).then_some("fabric");
+    let loaders: &[&str] = if kind == mods::Kind::Mods { loader.mod_loaders() } else { &[] };
     modrinth::search(
         &query,
         &mc_version,
@@ -234,7 +238,7 @@ async fn search_mods(
         offset,
         20,
         kind.project_type(),
-        loader,
+        loaders,
     )
     .await
 }
@@ -249,8 +253,9 @@ async fn mod_versions(
     project: String,
     mc_version: String,
     kind: mods::Kind,
+    loader: Loader,
 ) -> Result<Vec<modrinth::Version>> {
-    modrinth::versions(&project, &mc_version, kind.loaders()).await
+    modrinth::versions(&project, &mc_version, kind.loaders(loader)).await
 }
 
 /// Install a Modrinth project into an instance, with the required dependencies
@@ -269,7 +274,10 @@ async fn install_mod(
     let instance = instance::get(&id).await?;
     let version = match version_id {
         Some(v) => modrinth::version(&v).await?,
-        None => modrinth::latest_version(&project, &instance.mc_version, kind.loaders()).await?,
+        None => {
+            modrinth::latest_version(&project, &instance.mc_version, kind.loaders(instance.loader))
+                .await?
+        }
     };
 
     let mut installed = Vec::new();
@@ -304,7 +312,8 @@ async fn install_mod(
             let resolved = match (&dep.version_id, &dep.project_id) {
                 (Some(v), _) => modrinth::version(v).await,
                 (None, Some(p)) => {
-                    modrinth::latest_version(p, &instance.mc_version, kind.loaders()).await
+                    modrinth::latest_version(p, &instance.mc_version, kind.loaders(instance.loader))
+                        .await
                 }
                 (None, None) => continue,
             };
@@ -452,7 +461,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             list_versions,
-            list_fabric_loaders,
+            list_loaders,
             list_instances,
             create_instance,
             update_instance,

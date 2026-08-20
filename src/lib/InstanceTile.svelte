@@ -41,7 +41,7 @@
     }
   }}
 >
-  <BlockIcon name={instance.name} size={52} fabric={instance.loader === "fabric"} />
+  <BlockIcon name={instance.name} size={52} fabric={instance.loader !== "vanilla"} />
   <span class="name">{instance.name}</span>
   <span class="version">{instance.mc_version}</span>
 </div>
