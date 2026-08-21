@@ -6,5 +6,7 @@ export default defineConfig({
   plugins: [svelte()],
   clearScreen: false,
   server: { port: 1420, strictPort: true, watch: { ignored: ["**/src-tauri/**"] } },
-  build: { target: "chrome110", minify: "esbuild", sourcemap: false },
+  // Vite 8 bundles with rolldown and minifies with oxc; asking for esbuild
+  // here loads a deprecated path that is no longer installed.
+  build: { target: "chrome110", minify: "oxc", sourcemap: false },
 });
