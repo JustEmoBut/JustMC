@@ -65,9 +65,12 @@
     return mb < 1024 ? `${Math.max(1, Math.round(mb))} MB` : `${(mb / 1024).toFixed(1)} GB`;
   }
 
-  function played(at: number) {
-    if (!at) return "";
-    return new Date(at * 1000).toLocaleString();
+  /** Size, last played and the folder when it differs from the world's name. */
+  function detail(world: World) {
+    const parts = [size(world.size)];
+    if (world.last_played) parts.push(new Date(world.last_played * 1000).toLocaleString());
+    if (world.name !== world.folder) parts.push(world.folder);
+    return parts.join(" · ");
   }
 </script>
 
@@ -85,10 +88,7 @@
         <li>
           <div class="what">
             <strong>{world.name}</strong>
-            <span class="muted">
-              {size(world.size)}{#if played(world.last_played)} · {played(world.last_played)}{/if}
-              {#if world.name !== world.folder} · {world.folder}{/if}
-            </span>
+            <span class="muted">{detail(world)}</span>
           </div>
 
           {#if confirming === world.folder}
@@ -134,6 +134,14 @@
     padding: 8px 10px;
     border-radius: var(--radius);
     background: var(--bg-inset);
+  }
+
+  /* The base button style is not flex, so an icon and a label would stack. */
+  li button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
   }
 
   .what {
