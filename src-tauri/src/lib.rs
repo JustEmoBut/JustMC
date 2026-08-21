@@ -18,7 +18,6 @@ pub mod screenshots;
 pub mod settings;
 pub mod worlds;
 
-mod probe;
 mod download;
 mod error;
 mod java;
