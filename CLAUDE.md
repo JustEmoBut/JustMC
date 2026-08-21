@@ -234,6 +234,20 @@ CurseForge is not a second provider and cannot become one cheaply: its API needs
 a per-launcher key that an open source build cannot ship, and some authors
 forbid third-party downloads outright.
 
+### Screenshots (`screenshots.rs`)
+
+The one instance folder a user wants to look at rather than manage, so the
+images are served straight to the webview over Tauri's `asset:` protocol
+instead of crossing IPC: a screenshot is a couple of megabytes and a grid of
+them would be a hundred, base64-encoded, on every open.
+
+That protocol is enabled in `tauri.conf.json` with an **empty** scope, and
+`img-src` carries `asset: http://asset.localhost`. Nothing is readable until
+`list` allows the folder it just read, because the folder sits under whatever
+`JUSTLAUNCHER_HOME` points at and no static glob can describe that. The
+frontend turns a listed path into a URL with `convertFileSrc`; deleting still
+goes through `checked_name` and an extension check, like every other folder.
+
 ### Worlds (`worlds.rs`)
 
 Narrow on purpose: list, back up, delete. The game creates and renames worlds

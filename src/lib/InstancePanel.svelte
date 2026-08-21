@@ -11,6 +11,7 @@
     onedit,
     onmods,
     onworlds,
+    onscreenshots,
     onchanged,
   }: {
     instance: Instance;
@@ -20,6 +21,7 @@
     onedit: (instance: Instance) => void;
     onmods: (instance: Instance) => void;
     onworlds: (instance: Instance) => void;
+    onscreenshots: (instance: Instance) => void;
     onchanged: () => Promise<void>;
   } = $props();
 
@@ -121,6 +123,10 @@
     <button onclick={() => onworlds(instance)}>
       <Icon name="folder" />
       Worlds
+    </button>
+    <button onclick={() => onscreenshots(instance)}>
+      <Icon name="image" />
+      Screenshots
     </button>
     <button onclick={duplicate} disabled={duplicating || !!status}>
       <Icon name="copy" />

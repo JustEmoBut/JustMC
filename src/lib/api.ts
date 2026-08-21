@@ -73,6 +73,15 @@ export interface FabricLoader {
   stable: boolean;
 }
 
+export interface Screenshot {
+  file: string;
+  /** Absolute path; pass it through convertFileSrc to display it. */
+  path: string;
+  size: number;
+  /** Unix seconds. */
+  taken: number;
+}
+
 export interface World {
   /** The save directory name; every world command takes this. */
   folder: string;
@@ -192,6 +201,10 @@ export const api = {
     invoke<Account>("complete_microsoft_login", { code }),
   addOfflineAccount: (name: string) => invoke<Account>("add_offline_account", { name }),
   removeAccount: (id: string) => invoke<void>("remove_account", { id }),
+
+  listScreenshots: (id: string) => invoke<Screenshot[]>("list_screenshots", { id }),
+  deleteScreenshot: (id: string, file: string) =>
+    invoke<void>("delete_screenshot", { id, file }),
 
   listWorlds: (id: string) => invoke<World[]>("list_worlds", { id }),
   /** Zips the world into the exports folder; returns the archive path. */

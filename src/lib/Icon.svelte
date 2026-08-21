@@ -15,6 +15,7 @@
     | "user"
     | "search"
     | "copy"
+    | "image"
     | "gear";
 
   let { name, size = 15 }: { name: IconName; size?: number } = $props();
@@ -37,6 +38,10 @@
     <rect x="4" y="4" width="8" height="8" rx="1" fill="currentColor" stroke-width="1" />
   {:else if name === "plus"}
     <path d="M8 3.5v9M3.5 8h9" />
+  {:else if name === "image"}
+    <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
+    <circle cx="6" cy="6.5" r="1" />
+    <path d="M3 11.5 6.5 8l2.5 2.5L11 8.5l2 2" />
   {:else if name === "import"}
     <path d="M8 2.5v7M5 7l3 3 3-3M3 12.5h10" />
   {:else if name === "export"}

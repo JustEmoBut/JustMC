@@ -14,9 +14,11 @@ pub mod logs;
 pub mod mods;
 pub mod modrinth;
 
+pub mod screenshots;
 pub mod settings;
 pub mod worlds;
 
+mod probe;
 mod download;
 mod error;
 mod java;
@@ -197,6 +199,21 @@ async fn launch_instance(app: tauri::AppHandle, id: String, account_id: String) 
 #[tauri::command]
 fn stop_instance(id: String) -> bool {
     launch::stop(&id)
+}
+
+// -------------------------------------------------------------- screenshots
+
+#[tauri::command]
+async fn list_screenshots(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<Vec<screenshots::Screenshot>> {
+    screenshots::list(&app, &id).await
+}
+
+#[tauri::command]
+async fn delete_screenshot(id: String, file: String) -> Result<()> {
+    screenshots::delete(&id, &file).await
 }
 
 // ------------------------------------------------------------------- worlds
@@ -514,6 +531,8 @@ pub fn run() {
             install_instance,
             launch_instance,
             stop_instance,
+            list_screenshots,
+            delete_screenshot,
             list_worlds,
             backup_world,
             delete_world,
