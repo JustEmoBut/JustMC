@@ -234,6 +234,25 @@ CurseForge is not a second provider and cannot become one cheaply: its API needs
 a per-launcher key that an open source build cannot ship, and some authors
 forbid third-party downloads outright.
 
+### Worlds (`worlds.rs`)
+
+Narrow on purpose: list, back up, delete. The game creates and renames worlds
+better than a launcher can, but it has no backup button next to its delete
+one — and `.minecraft/saves` is the only thing in an instance that cannot be
+re-downloaded, which is the whole reason this exists.
+
+A folder is a world when it holds a `level.dat`, and that file is also where
+the in-game name and the last-played time come from. The name is found by
+scanning the gunzipped bytes for the `LevelName` tag rather than by parsing
+NBT (marked `ponytail:`); anything that scan does not recognise falls back to
+the folder name, which is what the world was created from anyway.
+
+Backups are `pack::zip_dir` — the same walk and filter `export` uses — writing
+into `exports/` with the world folder as the entry prefix, so unpacking into
+`saves` restores it. `world_dir` is the single chokepoint: it runs
+`checked_name` and then insists on a `level.dat`, so neither a crafted name nor
+a stray folder can be handed to `remove_dir_all`.
+
 ### Logs (`logs.rs`)
 
 Three directories hold something the user calls "the log", and `Source` is the

@@ -153,3 +153,42 @@ async fn a_pinned_loader_build_survives_creation_unless_there_is_no_loader() {
     let vanilla = instance::create("Plain", "1.21.1", Loader::Vanilla, "0.24.0").await.unwrap();
     assert!(vanilla.loader_version.is_empty(), "vanilla has no loader to pin");
 }
+
+/// The world list, a backup and a delete, against a real instance on disk.
+#[tokio::test]
+async fn worlds_are_listed_backed_up_and_deleted() {
+    scratch_home();
+    let instance = sample();
+    instance.save().await.unwrap();
+
+    // level.dat is gzipped NBT; the name is read out of the decompressed bytes.
+    let saves = instance.game_dir().join("saves/New World");
+    std::fs::create_dir_all(saves.join("region")).unwrap();
+    let mut nbt = b"\x00\x08Data\x08LevelName".to_vec();
+    nbt.extend_from_slice(&(9u16).to_be_bytes());
+    nbt.extend_from_slice(b"Ev Dunyam");
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+    std::io::Write::write_all(&mut gz, &nbt).unwrap();
+    std::fs::write(saves.join("level.dat"), gz.finish().unwrap()).unwrap();
+    std::fs::write(saves.join("region/r.0.0.mca"), vec![7u8; 2048]).unwrap();
+    // Not a world: no level.dat, so it must not be listed or deletable.
+    std::fs::create_dir_all(instance.game_dir().join("saves/notaworld")).unwrap();
+
+    let worlds = justlauncher_lib::worlds::list(&instance.id).await.unwrap();
+    assert_eq!(worlds.len(), 1, "only folders holding a level.dat are worlds");
+    assert_eq!(worlds[0].folder, "New World");
+    assert_eq!(worlds[0].name, "Ev Dunyam");
+    assert!(worlds[0].size > 2048, "size covers the whole tree");
+
+    let archive = justlauncher_lib::worlds::backup(&instance.id, "New World").await.unwrap();
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(&archive).unwrap()).unwrap();
+    let names: Vec<String> = (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().to_owned()).collect();
+    assert!(names.contains(&"New World/level.dat".to_string()), "{names:?}");
+    assert!(names.contains(&"New World/region/r.0.0.mca".to_string()), "{names:?}");
+
+    assert!(justlauncher_lib::worlds::delete(&instance.id, "notaworld").await.is_err());
+    assert!(justlauncher_lib::worlds::delete(&instance.id, "../../accounts.json").await.is_err());
+    justlauncher_lib::worlds::delete(&instance.id, "New World").await.unwrap();
+    assert!(!saves.exists());
+    assert!(justlauncher_lib::worlds::list(&instance.id).await.unwrap().is_empty());
+}

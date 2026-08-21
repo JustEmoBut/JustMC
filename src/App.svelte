@@ -22,6 +22,7 @@
   import LogView from "./lib/LogView.svelte";
   import Mods from "./lib/Mods.svelte";
   import Modal from "./lib/Modal.svelte";
+  import Worlds from "./lib/Worlds.svelte";
   import NewInstance from "./lib/NewInstance.svelte";
   import Settings from "./lib/Settings.svelte";
   import TaskWindow from "./lib/TaskWindow.svelte";
@@ -48,6 +49,7 @@
   let showAccounts = $state(false);
   let editing = $state<Instance | null>(null);
   let managingMods = $state<Instance | null>(null);
+  let managingWorlds = $state<Instance | null>(null);
   /** Which folder the content window is showing, so a drop lands in it. */
   let modsKind = $state<ModKind>("mods");
   /** Bumped when a dropped file lands, to make the content window re-read the folder. */
@@ -281,6 +283,11 @@
           icon: "sliders",
           action: () => openContent(instance),
         },
+        {
+          label: "Worlds",
+          icon: "folder",
+          action: () => (managingWorlds = instance),
+        },
         ...(instance.loader !== "vanilla"
           ? [
               {
@@ -461,6 +468,7 @@
         onlaunch={play}
         onedit={(i) => (editing = i)}
         onmods={openContent}
+        onworlds={(i) => (managingWorlds = i)}
         onchanged={refreshInstances}
       />
     {/if}
@@ -514,6 +522,14 @@
       {settings}
       onclose={() => (showSettings = false)}
       onsaved={(saved) => (settings = saved)}
+    />
+  {/if}
+
+  {#if managingWorlds}
+    <Worlds
+      instance={managingWorlds}
+      running={!!busy[managingWorlds.id]}
+      onclose={() => (managingWorlds = null)}
     />
   {/if}
 

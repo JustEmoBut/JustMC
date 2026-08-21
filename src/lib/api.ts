@@ -73,6 +73,16 @@ export interface FabricLoader {
   stable: boolean;
 }
 
+export interface World {
+  /** The save directory name; every world command takes this. */
+  folder: string;
+  /** What level.dat calls it, falling back to the folder name. */
+  name: string;
+  size: number;
+  /** Unix seconds, from level.dat's modification time. */
+  last_played: number;
+}
+
 /** Which directory a log came from; also how the backend finds it again. */
 export type LogSource = "launcher" | "game" | "crash";
 
@@ -182,6 +192,12 @@ export const api = {
     invoke<Account>("complete_microsoft_login", { code }),
   addOfflineAccount: (name: string) => invoke<Account>("add_offline_account", { name }),
   removeAccount: (id: string) => invoke<void>("remove_account", { id }),
+
+  listWorlds: (id: string) => invoke<World[]>("list_worlds", { id }),
+  /** Zips the world into the exports folder; returns the archive path. */
+  backupWorld: (id: string, folder: string) =>
+    invoke<string>("backup_world", { id, folder }),
+  deleteWorld: (id: string, folder: string) => invoke<void>("delete_world", { id, folder }),
 
   /** Past logs and crash reports of an instance, newest first. */
   listLogs: (id: string) => invoke<LogFile[]>("list_logs", { id }),

@@ -24,7 +24,7 @@ fn is_skipped(relative: &Path) -> bool {
 }
 
 /// Collect every file under `root`, as (absolute path, path relative to root).
-fn collect(root: &Path) -> Result<Vec<(PathBuf, PathBuf)>> {
+pub(crate) fn collect(root: &Path) -> Result<Vec<(PathBuf, PathBuf)>> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
 
@@ -64,19 +64,27 @@ pub fn export(instance: &Instance) -> Result<PathBuf> {
     std::fs::create_dir_all(&exports)?;
     let dest = exports.join(format!("{}.zip", instance.id));
 
+    zip_dir(&dir, &dest, "")?;
+    Ok(dest)
+}
+
+/// Zip every file under `root` into `dest`, each entry prefixed with `prefix`
+/// so an archive can unpack into a folder of its own. Shared with world
+/// backups, which are the same operation on a smaller tree.
+pub(crate) fn zip_dir(root: &Path, dest: &Path, prefix: &str) -> Result<()> {
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
-    let mut zip = zip::ZipWriter::new(std::fs::File::create(&dest)?);
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(dest)?);
 
-    for (path, relative) in collect(&dir)? {
+    for (path, relative) in collect(root)? {
         // Zip entries always use forward slashes, whatever the host platform.
-        let name = relative.to_string_lossy().replace('\\', "/");
+        let name = format!("{prefix}{}", relative.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"));
         zip.start_file(name, options)?;
         let mut file = std::fs::File::open(&path)?;
         std::io::copy(&mut file, &mut zip)?;
     }
     zip.finish()?;
-    Ok(dest)
+    Ok(())
 }
 
 /// Copy an instance into a new one, worlds, configs and mods included.

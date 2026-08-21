@@ -15,6 +15,7 @@ pub mod mods;
 pub mod modrinth;
 
 pub mod settings;
+pub mod worlds;
 
 mod download;
 mod error;
@@ -196,6 +197,24 @@ async fn launch_instance(app: tauri::AppHandle, id: String, account_id: String) 
 #[tauri::command]
 fn stop_instance(id: String) -> bool {
     launch::stop(&id)
+}
+
+// ------------------------------------------------------------------- worlds
+
+#[tauri::command]
+async fn list_worlds(id: String) -> Result<Vec<worlds::World>> {
+    worlds::list(&id).await
+}
+
+/// Returns the archive path so the UI can say where the backup went.
+#[tauri::command]
+async fn backup_world(id: String, folder: String) -> Result<String> {
+    Ok(worlds::backup(&id, &folder).await?.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+async fn delete_world(id: String, folder: String) -> Result<()> {
+    worlds::delete(&id, &folder).await
 }
 
 // ------------------------------------------------------- logs and crash reports
@@ -495,6 +514,9 @@ pub fn run() {
             install_instance,
             launch_instance,
             stop_instance,
+            list_worlds,
+            backup_world,
+            delete_world,
             list_logs,
             read_log,
             list_mods,
