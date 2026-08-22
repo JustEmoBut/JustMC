@@ -66,12 +66,31 @@ fn probe(path: &Path) -> Option<JavaInstall> {
 }
 
 /// Physical RAM in MB, or `None` when the platform will not say. Cached: it
-/// costs a process spawn on Windows and never changes while we run.
+/// never changes while we run, and `launch` asks on every start.
+///
+/// Windows answers through `GlobalMemoryStatusEx`; Linux and macOS have a file
+/// and a sysctl. None of them is worth a system-facts crate for one number.
 pub fn physical_memory_mb() -> Option<u32> {
     static CACHED: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
     *CACHED.get_or_init(|| {
-        // ponytail: shelling out beats pulling in sysinfo for one number;
-        // swap it in if more system facts are ever needed.
+        #[cfg(windows)]
+        let bytes: u64 = {
+            use windows_sys::Win32::System::SystemInformation::{
+                GlobalMemoryStatusEx, MEMORYSTATUSEX,
+            };
+            let mut status = MEMORYSTATUSEX {
+                dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+                ..unsafe { std::mem::zeroed() }
+            };
+            // SAFETY: the struct is zeroed and its dwLength set, which is the
+            // whole contract; the call only writes into it.
+            if unsafe { GlobalMemoryStatusEx(&mut status) } == 0 {
+                return None;
+            }
+            status.ullTotalPhys
+        };
+
+        #[cfg(not(windows))]
         let bytes: u64 = if cfg!(target_os = "linux") {
             let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
             let kb: u64 = meminfo
@@ -86,15 +105,7 @@ pub fn physical_memory_mb() -> Option<u32> {
             let out = std::process::Command::new("sysctl").args(["-n", "hw.memsize"]).output().ok()?;
             String::from_utf8_lossy(&out.stdout).trim().parse().ok()?
         } else {
-            let mut cmd = std::process::Command::new("powershell");
-            cmd.args(["-NoProfile", "-Command", "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory"]);
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-            }
-            let out = cmd.output().ok()?;
-            String::from_utf8_lossy(&out.stdout).trim().parse().ok()?
+            return None; // a platform none of this knows how to ask
         };
         u32::try_from(bytes / (1024 * 1024)).ok()
     })
@@ -209,5 +220,16 @@ mod tests {
         );
         assert_eq!(parse_major("openjdk version \"17\"").unwrap().1, 17);
         assert!(parse_major("no version here").is_none());
+    }
+}
+
+#[cfg(test)]
+mod memory_tests {
+    /// The one number the launcher refuses a launch over, so a platform that
+    /// silently answers nothing would quietly disable that check.
+    #[test]
+    fn the_machine_reports_its_memory() {
+        let mb = super::physical_memory_mb().expect("this platform reports RAM");
+        assert!((512..=4 * 1024 * 1024).contains(&mb), "implausible: {mb} MB");
     }
 }

@@ -37,20 +37,35 @@ async fn saves(id: &str) -> Result<PathBuf> {
     Ok(instance::get(id).await?.game_dir().join("saves"))
 }
 
-/// The world's in-game name out of `level.dat`.
+/// The name and last-played time out of `level.dat`.
 ///
-/// `level.dat` is gzipped NBT, and the one string wanted here sits in a
-/// predictable shape: the tag name, then a big-endian u16 length, then UTF-8.
-/// Scanning for it beats carrying an NBT parser for a single field.
+/// Gzipped NBT, parsed properly now that `nbt` exists for `servers.dat`. The
+/// file's own `LastPlayed` is what the game shows, and unlike the file's
+/// modification time it survives a copy, a duplicate or a restored backup.
 ///
-/// ponytail: byte scan, not a parser. A world whose name does not survive this
-/// falls back to the folder name, which is what it was created from anyway.
-fn level_name(bytes: &[u8]) -> Option<String> {
-    let at = bytes.windows(9).position(|w| w == b"LevelName")? + 9;
-    let len = u16::from_be_bytes([*bytes.get(at)?, *bytes.get(at + 1)?]) as usize;
-    let text = bytes.get(at + 2..at + 2 + len)?;
-    let name = String::from_utf8_lossy(text).trim().to_string();
-    (!name.is_empty()).then_some(name)
+/// Anything unreadable is `None` on both counts, and the caller falls back to
+/// the folder name and the file's mtime.
+fn level_info(bytes: &[u8]) -> (Option<String>, Option<u64>) {
+    use std::io::Read;
+    let mut plain = Vec::new();
+    if flate2::read::GzDecoder::new(bytes).read_to_end(&mut plain).is_err() {
+        return (None, None);
+    }
+    let Ok((_, root)) = crate::nbt::read(&plain) else { return (None, None) };
+    let Some(data) = root.get("Data") else { return (None, None) };
+
+    let name = data
+        .get("LevelName")
+        .and_then(crate::nbt::Tag::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string);
+    // Milliseconds in the file, seconds everywhere in this app.
+    let last_played = match data.get("LastPlayed") {
+        Some(crate::nbt::Tag::Long(ms)) if *ms > 0 => Some(*ms as u64 / 1000),
+        _ => None,
+    };
+    (name, last_played)
 }
 
 /// Total bytes and newest modification time under a directory.
@@ -75,25 +90,26 @@ pub async fn list(id: &str) -> Result<Vec<World>> {
             continue;
         }
         let folder = entry.file_name().to_string_lossy().into_owned();
-        let last_played = level
-            .metadata()
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let (name, played) = match std::fs::read(&level) {
+            Ok(bytes) => level_info(&bytes),
+            Err(_) => (None, None),
+        };
+        let last_played = played.unwrap_or_else(|| {
+            level
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        });
 
-        let name = std::fs::read(&level)
-            .ok()
-            .and_then(|bytes| {
-                use std::io::Read;
-                let mut out = Vec::new();
-                flate2::read::GzDecoder::new(&bytes[..]).read_to_end(&mut out).ok()?;
-                level_name(&out)
-            })
-            .unwrap_or_else(|| folder.clone());
-
-        out.push(World { name, size: tree_size(&path), last_played, folder });
+        out.push(World {
+            name: name.unwrap_or_else(|| folder.clone()),
+            size: tree_size(&path),
+            last_played,
+            folder,
+        });
     }
     out.sort_by(|a, b| b.last_played.cmp(&a.last_played));
     Ok(out)
@@ -137,31 +153,43 @@ pub async fn delete(id: &str, folder: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::nbt::Tag;
 
-    /// A fragment of real `level.dat` shape: the tag name, a big-endian
-    /// length, then the text.
-    fn nbt(name: &str) -> Vec<u8> {
-        let mut out = b"\x00\x08Data\x08".to_vec();
-        out.extend_from_slice(b"LevelName");
-        out.extend_from_slice(&(name.len() as u16).to_be_bytes());
-        out.extend_from_slice(name.as_bytes());
-        out.extend_from_slice(b"\x0a\x09GameRules");
-        out
+    /// A `level.dat` as the game writes one: gzipped NBT with the fields
+    /// under `Data`.
+    fn level_dat(name: &str, last_played: i64) -> Vec<u8> {
+        use std::io::Write;
+        let root = Tag::Compound(vec![(
+            "Data".to_string(),
+            Tag::Compound(vec![
+                ("LevelName".to_string(), Tag::String(name.into())),
+                ("LastPlayed".to_string(), Tag::Long(last_played)),
+                ("GameType".to_string(), Tag::Int(0)),
+            ]),
+        )]);
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        gz.write_all(&crate::nbt::write("", &root)).unwrap();
+        gz.finish().unwrap()
     }
 
     #[test]
-    fn reads_the_name_out_of_level_dat() {
-        assert_eq!(level_name(&nbt("Test World")).as_deref(), Some("Test World"));
-        assert_eq!(level_name(&nbt("Ev")).as_deref(), Some("Ev"));
-        // A folder with no name tag, or an empty one, falls back to the folder.
-        assert_eq!(level_name(b"nothing here"), None);
-        assert_eq!(level_name(&nbt("")), None);
+    fn reads_the_name_and_time_out_of_level_dat() {
+        let (name, played) = level_info(&level_dat("Test World", 1_700_000_000_000));
+        assert_eq!(name.as_deref(), Some("Test World"));
+        // Milliseconds in the file, seconds out of it.
+        assert_eq!(played, Some(1_700_000_000));
     }
 
     #[test]
-    fn a_truncated_name_does_not_panic() {
-        let mut bytes = nbt("Test World");
-        bytes.truncate(bytes.len() - 14);
-        assert_eq!(level_name(&bytes), None);
+    fn nothing_readable_falls_back_rather_than_failing() {
+        // An empty name is no name; the caller uses the folder instead.
+        assert_eq!(level_info(&level_dat("", 0)), (None, None));
+        assert_eq!(level_info(b"not gzip at all"), (None, None));
+
+        // Truncated at every length: never a panic, never a wrong answer.
+        let bytes = level_dat("Test World", 1);
+        for cut in 0..bytes.len() {
+            assert_eq!(level_info(&bytes[..cut]).0, None, "truncated to {cut}");
+        }
     }
 }

@@ -57,13 +57,21 @@ fits this stack better.
 
 ## Tech debt
 
-Marked `ponytail:` in the code:
+Marked `ponytail:` in the code. Nothing is outstanding: the last of it was
+cleared on 2026-08-22.
 
-- `download.rs` — resumed files accepted on size match alone, no re-hash
-- `servers.rs` — the round trip stands in for the protocol's own ping packet
-- `java.rs` — RAM detected by shelling out instead of a sysinfo call
-- `mods.rs` — jar metadata cache grows without a bound
-- `worlds.rs` — world names found by scanning `level.dat` bytes, not parsing NBT
+- ~~`java.rs` — RAM detected by shelling out~~ — `GlobalMemoryStatusEx` on
+  Windows, so the launch path no longer spawns a process
+- ~~`mods.rs` — jar metadata cache grows without a bound~~ — dropped whole at
+  2000 entries
+- ~~`worlds.rs` — world names found by scanning `level.dat` bytes~~ — parsed
+  with the `nbt` module written for `servers.dat`, which also yields the game's
+  own `LastPlayed` instead of the file's mtime
+- ~~`servers.rs` — the round trip stands in for a ping packet~~ — the
+  protocol's own ping is timed, with the round trip as the fallback
+- `download.rs` — resumed files accepted on a size match, no re-hash. Kept, not
+  deferred: hashing costs ~500 MB of reads every launch to catch corruption
+  that happened after an already-verified download.
 
 ## Not planned
 

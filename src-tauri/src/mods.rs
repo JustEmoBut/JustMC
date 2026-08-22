@@ -258,8 +258,14 @@ type JarInfo = (String, String, Option<String>, String);
 /// the filesystem already tracks -- path, size, modified time -- so a file that
 /// was replaced or edited is re-read and one that was not never is.
 ///
-/// ponytail: unbounded, one entry per file seen this session; add eviction if a
-/// user ever holds enough instances for that to matter.
+/// Bounded by dropping the whole map when it gets large rather than by
+/// evicting the oldest entry: a miss costs one archive re-read, and tracking
+/// use order to avoid it would be more machinery than the misses are worth.
+/// Entries kept before the cache is dropped. A heavily modded instance holds
+/// a few hundred files, so this is several of those; each entry is a name, a
+/// version and an icon.
+const CACHE_LIMIT: usize = 2000;
+
 fn cached_jar(
     path: &std::path::Path,
     size: u64,
@@ -280,7 +286,11 @@ fn cached_jar(
     let (name, version, icon) = read_metadata(path, kind)
         .unwrap_or_else(|| (file.trim_end_matches(DISABLED).to_string(), String::new(), None));
     let info = (name, version, icon, sha1_of(path).unwrap_or_default());
-    cache.lock().unwrap().insert(key, info.clone());
+    let mut cache = cache.lock().unwrap();
+    if cache.len() >= CACHE_LIMIT {
+        cache.clear();
+    }
+    cache.insert(key, info.clone());
     info
 }
 

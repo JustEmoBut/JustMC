@@ -353,9 +353,14 @@ async fn status(host: String, port: u16) -> Result<Status> {
     let mut text = vec![0u8; text_len as usize];
     stream.read_exact(&mut text).await?;
 
-    // ponytail: the round trip stands in for the protocol's own ping packet.
-    // One exchange less, and the number a player reads is the same order.
-    let latency_ms = started.elapsed().as_millis() as u64;
+    // The protocol's own ping, timed on its own: everything above includes
+    // the TCP connect and the server building its reply, which is not what a
+    // player reads a latency figure as.
+    let latency_ms = round_trip(&mut stream).await.unwrap_or_else(|| {
+        // A server that ignores the ping still gets a number, just a coarser
+        // one — Velocity and some proxies close the socket after the status.
+        started.elapsed().as_millis() as u64
+    });
     let reply: Reply = serde_json::from_slice(&text)
         .map_err(|_| Error::msg("The server's status reply was not readable."))?;
 
@@ -369,6 +374,24 @@ async fn status(host: String, port: u16) -> Result<Status> {
         favicon: reply.favicon.filter(|f| f.starts_with("data:image/")),
         latency_ms,
     })
+}
+
+/// One ping/pong exchange, returning the milliseconds it took. `None` when the
+/// server does not answer it, which is not an error: the status is already in
+/// hand by then.
+async fn round_trip(stream: &mut tokio::net::TcpStream) -> Option<u64> {
+    // The payload is echoed back verbatim; the value itself means nothing.
+    let payload: i64 = 0x4a_4c_50_49_4e_47; // "JLPING"
+    let started = Instant::now();
+    stream.write_all(&packet(0x01, &payload.to_be_bytes())).await.ok()?;
+    stream.flush().await.ok()?;
+
+    read_varint(stream).await.ok()?; // length
+    if read_varint(stream).await.ok()? != 0x01 {
+        return None;
+    }
+    let echoed = stream.read_i64().await.ok()?;
+    (echoed == payload).then(|| started.elapsed().as_millis() as u64)
 }
 
 #[cfg(test)]

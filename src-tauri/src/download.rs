@@ -64,8 +64,9 @@ async fn sha1_of(path: &Path) -> Result<String> {
 /// Hashing instead would mean re-reading ~500 MB of assets before every
 /// single launch.
 ///
-/// ponytail: size-only revalidation; hash again here if silent disk
-/// corruption ever turns out to be a real problem in practice.
+/// Kept deliberately, not pending: hashing here would trade a real cost every
+/// launch for a failure mode — silent disk corruption of an already-verified
+/// file — that the game itself would report as a crash on next read.
 async fn is_valid(job: &Job) -> bool {
     let Ok(meta) = tokio::fs::metadata(&job.path).await else {
         return false;

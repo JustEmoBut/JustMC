@@ -169,14 +169,20 @@ async fn worlds_are_listed_backed_up_and_deleted() {
     let instance = sample();
     instance.save().await.unwrap();
 
-    // level.dat is gzipped NBT; the name is read out of the decompressed bytes.
+    // level.dat is gzipped NBT; the name and the last-played time come out of
+    // it rather than off the file.
+    use justlauncher_lib::nbt::Tag;
     let saves = instance.game_dir().join("saves/New World");
     std::fs::create_dir_all(saves.join("region")).unwrap();
-    let mut nbt = b"\x00\x08Data\x08LevelName".to_vec();
-    nbt.extend_from_slice(&(9u16).to_be_bytes());
-    nbt.extend_from_slice(b"Ev Dunyam");
+    let level = Tag::Compound(vec![(
+        "Data".to_string(),
+        Tag::Compound(vec![
+            ("LevelName".to_string(), Tag::String("Ev Dunyam".into())),
+            ("LastPlayed".to_string(), Tag::Long(1_700_000_000_000)),
+        ]),
+    )]);
     let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
-    std::io::Write::write_all(&mut gz, &nbt).unwrap();
+    std::io::Write::write_all(&mut gz, &justlauncher_lib::nbt::write("", &level)).unwrap();
     std::fs::write(saves.join("level.dat"), gz.finish().unwrap()).unwrap();
     std::fs::write(saves.join("region/r.0.0.mca"), vec![7u8; 2048]).unwrap();
     // Not a world: no level.dat, so it must not be listed or deletable.
@@ -186,6 +192,8 @@ async fn worlds_are_listed_backed_up_and_deleted() {
     assert_eq!(worlds.len(), 1, "only folders holding a level.dat are worlds");
     assert_eq!(worlds[0].folder, "New World");
     assert_eq!(worlds[0].name, "Ev Dunyam");
+    // The file's own LastPlayed, not the mtime of the file just written.
+    assert_eq!(worlds[0].last_played, 1_700_000_000);
     assert!(worlds[0].size > 2048, "size covers the whole tree");
 
     let archive = justlauncher_lib::worlds::backup(&instance.id, "New World").await.unwrap();
