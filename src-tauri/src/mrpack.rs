@@ -342,25 +342,35 @@ fn collect_exportable(root: &Path) -> Result<(Vec<Hashed>, Vec<(PathBuf, String)
             if path.is_dir() {
                 stack.push(path);
             } else if is_content_file(&relative) {
-                let bytes = std::fs::read(&path)?;
-                use sha1::Digest;
-                let mut one = sha1::Sha1::new();
-                one.update(&bytes);
-                let mut many = sha2::Sha512::new();
-                many.update(&bytes);
-                hashed.push(Hashed {
-                    sha1: hex::encode(one.finalize()),
-                    sha512: hex::encode(many.finalize()),
-                    path,
-                    rel: relative,
-                    size: bytes.len() as u64,
-                });
+                let (sha1, sha512, size) = hash_file(&path)?;
+                hashed.push(Hashed { sha1, sha512, path, rel: relative, size });
             } else {
                 overrides.push((path, relative));
             }
         }
     }
     Ok((hashed, overrides))
+}
+
+/// Both digests the format requires, plus the size, read in chunks rather
+/// than into one buffer: a resource pack is routinely hundreds of megabytes.
+fn hash_file(path: &Path) -> Result<(String, String, u64)> {
+    use sha1::Digest;
+    let mut file = std::fs::File::open(path)?;
+    let mut one = sha1::Sha1::new();
+    let mut many = sha2::Sha512::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut size = 0u64;
+    loop {
+        let read = file.read(&mut buf)?;
+        if read == 0 {
+            break;
+        }
+        one.update(&buf[..read]);
+        many.update(&buf[..read]);
+        size += read as u64;
+    }
+    Ok((hex::encode(one.finalize()), hex::encode(many.finalize()), size))
 }
 
 fn write_mrpack(dest: &Path, index: &[u8], overrides: &[(PathBuf, String)]) -> Result<()> {

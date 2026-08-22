@@ -335,6 +335,9 @@ async fn install_modpack(
 
     let file = version.jar().ok_or_else(|| Error::msg("That pack build has no file."))?;
     let archive = std::env::temp_dir().join(format!("justlauncher-{}.mrpack", version.id));
+    // A leftover from an interrupted install would be accepted on its size
+    // alone, so the download starts from an empty slot.
+    let _ = tokio::fs::remove_file(&archive).await;
     download::run(
         &app,
         "Pack",

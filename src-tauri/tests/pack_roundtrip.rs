@@ -7,12 +7,23 @@ use justlauncher_lib::pack;
 use std::io::Read;
 use std::path::PathBuf;
 
-/// Point the launcher at a private data directory for this test binary.
-fn scratch_home() -> PathBuf {
+/// The data directory is chosen by a process-wide env var, so only one test
+/// can own it at a time. Holding this lock for the length of a test is what
+/// lets plain `cargo test` run the binary's tests without them wiping each
+/// other's home mid-run.
+static HOME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Point the launcher at a private data directory, wiped first. Keep the
+/// returned guard alive for the whole test: dropping it hands the directory
+/// to the next one.
+fn scratch_home() -> (PathBuf, std::sync::MutexGuard<'static, ()>) {
+    // A panicking test poisons the lock but leaves nothing to corrupt; the
+    // next test wipes the directory anyway.
+    let guard = HOME.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!("jl-pack-test-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::env::set_var("JUSTLAUNCHER_HOME", &dir);
-    dir
+    (dir, guard)
 }
 
 fn sample() -> Instance {
@@ -33,7 +44,7 @@ fn sample() -> Instance {
 
 #[tokio::test]
 async fn export_then_import_preserves_settings_and_world_data() {
-    scratch_home();
+    let _home = scratch_home();
     let original = sample();
     original.save().await.unwrap();
 
@@ -88,7 +99,7 @@ async fn export_then_import_preserves_settings_and_world_data() {
 
 #[tokio::test]
 async fn importing_something_that_is_not_an_instance_is_rejected() {
-    let home = scratch_home();
+    let (home, _guard) = scratch_home();
     std::fs::create_dir_all(&home).unwrap();
 
     let bogus = home.join("not-an-instance.zip");
@@ -103,9 +114,7 @@ async fn importing_something_that_is_not_an_instance_is_rejected() {
 
 #[tokio::test]
 async fn duplicate_copies_world_data_but_not_natives() {
-    let dir = std::env::temp_dir().join(format!("jl-dup-test-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::env::set_var("JUSTLAUNCHER_HOME", &dir);
+    let _home = scratch_home();
 
     let original = sample();
     original.save().await.unwrap();
@@ -138,9 +147,7 @@ async fn duplicate_copies_world_data_but_not_natives() {
 /// The New Instance dialog can pin a loader build; vanilla has none to pin.
 #[tokio::test]
 async fn a_pinned_loader_build_survives_creation_unless_there_is_no_loader() {
-    let dir = std::env::temp_dir().join(format!("jl-create-test-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    unsafe { std::env::set_var("JUSTLAUNCHER_HOME", &dir) };
+    let _home = scratch_home();
 
     let pinned = instance::create("Pinned", "1.21.1", Loader::Quilt, "0.24.0").await.unwrap();
     assert_eq!(pinned.loader_version, "0.24.0");
@@ -155,9 +162,10 @@ async fn a_pinned_loader_build_survives_creation_unless_there_is_no_loader() {
     assert!(vanilla.loader_version.is_empty(), "vanilla has no loader to pin");
 }
 
-/// The world list, a backup and a delete, against a real instance on disk.#[tokio::test]
+/// The world list, a backup and a delete, against a real instance on disk.
+#[tokio::test]
 async fn worlds_are_listed_backed_up_and_deleted() {
-    scratch_home();
+    let _home = scratch_home();
     let instance = sample();
     instance.save().await.unwrap();
 
@@ -198,7 +206,7 @@ async fn worlds_are_listed_backed_up_and_deleted() {
 #[tokio::test]
 async fn unpacked_pack_folders_are_listed_and_deleted() {
     use justlauncher_lib::mods::{self, Kind};
-    scratch_home();
+    let _home = scratch_home();
     let instance = sample();
     instance.save().await.unwrap();
 
@@ -249,7 +257,7 @@ async fn unpacked_pack_folders_are_listed_and_deleted() {
 async fn an_mrpack_export_separates_the_pack_from_the_player() {
     use justlauncher_lib::mrpack;
 
-    scratch_home();
+    let _home = scratch_home();
     let original = sample();
     original.save().await.unwrap();
 

@@ -349,16 +349,14 @@ fn client() -> Result<reqwest::Client> {
 /// single blip there fails a whole step; `RequestBuilder::try_clone` decides
 /// whether a body can even be re-sent (ours always can: plain JSON).
 async fn send(request: reqwest::RequestBuilder) -> Result<reqwest::Response> {
-    for attempt in 1..=ATTEMPTS {
-        let response = match request.try_clone() {
-            Some(sendable) => sendable.send().await,
-            // Cannot be re-sent, so this is the one shot at it.
-            None => return Ok(request.send().await?.error_for_status()?),
-        };
+    // Every attempt but the last goes through a clone; the last one sends the
+    // request itself, so a body that cannot be cloned still gets its one shot.
+    for attempt in 1..ATTEMPTS {
+        let Some(sendable) = request.try_clone() else { break };
 
-        let response = match response {
+        let response = match sendable.send().await {
             Ok(response) => response,
-            Err(e) if attempt < ATTEMPTS && retryable_error(&e) => {
+            Err(e) if retryable_error(&e) => {
                 tokio::time::sleep(backoff(attempt)).await;
                 continue;
             }
@@ -366,7 +364,8 @@ async fn send(request: reqwest::RequestBuilder) -> Result<reqwest::Response> {
         };
 
         let status = response.status();
-        if status.is_success() || attempt == ATTEMPTS || !retryable_status(status) {
+        // A success is not a retryable status either, so this is the way out.
+        if !retryable_status(status) {
             return Ok(response.error_for_status()?);
         }
         let wait = if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
@@ -376,7 +375,7 @@ async fn send(request: reqwest::RequestBuilder) -> Result<reqwest::Response> {
         };
         tokio::time::sleep(wait.unwrap_or_else(|| backoff(attempt))).await;
     }
-    unreachable!("the loop returns on its final attempt")
+    Ok(request.send().await?.error_for_status()?)
 }
 
 /// Fetch and deserialise JSON, with the launcher's user agent.

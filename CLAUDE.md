@@ -24,7 +24,7 @@ cd src-tauri
 cargo test                                        # offline tests only
 cargo test maven_paths                            # one test by name
 cargo test mojang::                               # one module
-cargo test --test pack_roundtrip -- --test-threads=1
+cargo test --test pack_roundtrip                  # instance/pack tests
 cargo test --test live_metadata -- --ignored --nocapture
 cargo test --test live_jre -- --ignored
 ```
