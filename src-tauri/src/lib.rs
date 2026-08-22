@@ -567,6 +567,9 @@ async fn add_offline_account(name: String) -> Result<Account> {
 
 #[tauri::command]
 async fn remove_account(id: String) -> Result<()> {
+    // The keychain entry goes with the account; a removed login should not
+    // outlive it in the OS store.
+    auth::forget(&id).await;
     let mut accounts = auth::load_all().await;
     accounts.retain(|a| a.id != id);
     auth::save_all(&accounts).await

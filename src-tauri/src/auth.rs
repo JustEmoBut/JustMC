@@ -16,6 +16,9 @@ const DEVICE_CODE_URL: &str = "https://login.microsoftonline.com/consumers/oauth
 const TOKEN_URL: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
 const XBL_URL: &str = "https://user.auth.xboxlive.com/user/authenticate";
 const XSTS_URL: &str = "https://xsts.auth.xboxlive.com/xsts/authorize";
+/// The current first-party endpoint: what the official launcher uses.
+const MC_LAUNCHER_LOGIN_URL: &str = "https://api.minecraftservices.com/launcher/login";
+/// The older one, kept as a fallback — see `minecraft_token`.
 const MC_LOGIN_URL: &str = "https://api.minecraftservices.com/authentication/login_with_xbox";
 const MC_PROFILE_URL: &str = "https://api.minecraftservices.com/minecraft/profile";
 const SCOPE: &str = "XboxLive.signin offline_access";
@@ -51,11 +54,13 @@ pub struct Account {
     pub id: String,
     pub name: String,
     pub kind: AccountKind,
-    /// Minecraft services token. Empty for offline accounts.
-    #[serde(default)]
+    /// Minecraft services token. Empty for offline accounts, and empty in
+    /// `accounts.json` whenever the OS keychain took it — see `secrets`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub access_token: String,
-    /// Microsoft refresh token, used to renew without re-login.
-    #[serde(default)]
+    /// Microsoft refresh token, used to renew without re-login. Stored beside
+    /// the access token, wherever that ends up.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub refresh_token: String,
     /// Unix seconds after which `access_token` must be refreshed.
     #[serde(default)]
@@ -246,21 +251,7 @@ async fn finish_login(ms: MsToken) -> Result<Account> {
     }
     let xsts: XboxResponse = xsts_resp.json().await?;
 
-    #[derive(Deserialize)]
-    struct McToken {
-        access_token: String,
-        expires_in: u64,
-    }
-    let mc: McToken = client
-        .post(MC_LOGIN_URL)
-        .json(&json!({
-            "identityToken": format!("XBL3.0 x={};{}", xsts.uhs()?, xsts.token),
-        }))
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
+    let mc = minecraft_token(&client, &format!("XBL3.0 x={};{}", xsts.uhs()?, xsts.token)).await?;
 
     #[derive(Deserialize)]
     struct Profile {
@@ -288,6 +279,49 @@ async fn finish_login(ms: MsToken) -> Result<Account> {
         expires_at: now() + lifetime,
         xuid: xsts.xuid(),
     })
+}
+
+#[derive(Deserialize)]
+struct McToken {
+    access_token: String,
+    expires_in: u64,
+}
+
+/// Trade an XSTS token for a Minecraft one.
+///
+/// Two endpoints answer this, with the same fields in the reply. `launcher/
+/// login` is the current first-party flow — what the official launcher calls,
+/// with a `PC_LAUNCHER` platform — and `authentication/login_with_xbox` is the
+/// older one this launcher used, which will not be around forever.
+///
+/// The new one is tried first and the old one catches a failure, because
+/// there is no test account here to prove the new shape against a live reply:
+/// if it is wrong, or Mojang gates it on something an unofficial client does
+/// not have, users still sign in. Drop the fallback once the new path has been
+/// seen working.
+async fn minecraft_token(client: &reqwest::Client, xtoken: &str) -> Result<McToken> {
+    let launcher = client
+        .post(MC_LAUNCHER_LOGIN_URL)
+        .json(&json!({ "xtoken": xtoken, "platform": "PC_LAUNCHER" }))
+        .send()
+        .await;
+
+    if let Ok(response) = launcher {
+        if response.status().is_success() {
+            if let Ok(token) = response.json::<McToken>().await {
+                return Ok(token);
+            }
+        }
+    }
+
+    Ok(client
+        .post(MC_LOGIN_URL)
+        .json(&json!({ "identityToken": xtoken }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?)
 }
 
 /// Mojang returns UUIDs without dashes; the game wants them dashed.
@@ -325,19 +359,120 @@ pub fn offline_account(name: &str) -> Result<Account> {
 }
 
 // ------------------------------------------------------------------- storage
+//
+// A live refresh token is a login. `accounts.json` holds who the accounts are;
+// the OS keychain holds what proves it — Credential Manager on Windows,
+// Keychain on macOS, the Secret Service on Linux.
+//
+// The keychain is not assumed to be there. A portable stick, a headless Linux
+// box with no session bus, a locked keyring: any of those fail, and the tokens
+// go back in the file rather than the user being logged out. That fallback is
+// the same weakness as before, but now it is the exception rather than the
+// only path.
+
+/// The keychain service name every entry lives under.
+const SERVICE: &str = "JustLauncher";
+
+/// The secret half of an account, as one keychain entry.
+#[derive(Serialize, Deserialize, Default)]
+struct Secrets {
+    #[serde(default)]
+    access_token: String,
+    #[serde(default)]
+    refresh_token: String,
+}
+
+impl Secrets {
+    fn is_empty(&self) -> bool {
+        self.access_token.is_empty() && self.refresh_token.is_empty()
+    }
+}
+
+/// Keychain calls are blocking, and on Linux they are a D-Bus round trip, so
+/// they never run on the async runtime's thread directly.
+async fn on_keychain<T, F>(work: F) -> Option<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> keyring::Result<T> + Send + 'static,
+{
+    tokio::task::spawn_blocking(work).await.ok()?.ok()
+}
+
+/// Read one account's secrets back. A missing entry is `None`, which is also
+/// what an unavailable keychain looks like — both mean "the file is all there
+/// is".
+async fn read_secrets(id: &str) -> Option<Secrets> {
+    let id = id.to_string();
+    let json = on_keychain(move || keyring::Entry::new(SERVICE, &id)?.get_password()).await?;
+    serde_json::from_str(&json).ok()
+}
+
+/// Store one account's secrets, reporting whether the keychain took them.
+async fn write_secrets(id: &str, secrets: &Secrets) -> bool {
+    let id = id.to_string();
+    let Ok(json) = serde_json::to_string(secrets) else { return false };
+    on_keychain(move || keyring::Entry::new(SERVICE, &id)?.set_password(&json)).await.is_some()
+}
+
+/// Drop an account's secrets. Called when the account goes, so a removed login
+/// does not linger in the keychain.
+pub async fn forget(id: &str) {
+    let id = id.to_string();
+    on_keychain(move || keyring::Entry::new(SERVICE, &id)?.delete_credential()).await;
+}
 
 pub async fn load_all() -> Vec<Account> {
-    tokio::fs::read_to_string(paths::accounts_file())
+    let mut accounts: Vec<Account> = tokio::fs::read_to_string(paths::accounts_file())
         .await
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    // A token still in the file is either a pre-keychain install or one where
+    // the keychain refused; either way the file wins, because it is the copy
+    // that was written last.
+    let mut plaintext = false;
+    for account in &mut accounts {
+        if !account.refresh_token.is_empty() || !account.access_token.is_empty() {
+            plaintext = true;
+            continue;
+        }
+        if let Some(secrets) = read_secrets(&account.id).await {
+            account.access_token = secrets.access_token;
+            account.refresh_token = secrets.refresh_token;
+        }
+    }
+
+    // Migrate on the way past: an old file gets rewritten without its tokens
+    // the first time anything reads it.
+    if plaintext {
+        let _ = save_all(&accounts).await;
+    }
+    accounts
 }
 
 pub async fn save_all(accounts: &[Account]) -> Result<()> {
+    let mut stored = accounts.to_vec();
+    for account in &mut stored {
+        let secrets = Secrets {
+            access_token: std::mem::take(&mut account.access_token),
+            refresh_token: std::mem::take(&mut account.refresh_token),
+        };
+        if secrets.is_empty() {
+            continue; // an offline account has nothing to hide
+        }
+        if !write_secrets(&account.id, &secrets).await {
+            // No keychain: put them back in the file rather than losing the
+            // login. The user stays signed in; the tokens are as exposed as
+            // they were before this existed.
+            account.access_token = secrets.access_token;
+            account.refresh_token = secrets.refresh_token;
+        }
+    }
+
     let path = paths::accounts_file();
     tokio::fs::create_dir_all(path.parent().unwrap()).await?;
-    tokio::fs::write(&path, serde_json::to_vec_pretty(accounts)?).await?;
+    tokio::fs::write(&path, serde_json::to_vec_pretty(&stored)?).await?;
     Ok(())
 }
 
@@ -360,6 +495,26 @@ mod tests {
         assert!(offline_account("way_too_long_a_name").is_err());
         assert!(offline_account("bad name!").is_err());
         assert!(offline_account("ok_Name9").is_ok());
+    }
+
+    #[test]
+    fn a_saved_account_carries_no_tokens_in_its_json() {
+        // What `save_all` writes for an account whose secrets the keychain
+        // took: identity, no credentials.
+        let mut account = offline_account("Notch").unwrap();
+        account.kind = AccountKind::Microsoft;
+        let json = serde_json::to_string(&account).unwrap();
+        assert!(!json.contains("access_token"), "{json}");
+        assert!(!json.contains("refresh_token"), "{json}");
+        assert!(json.contains("Notch"));
+
+        // And one the keychain refused still round-trips, so a fallback file
+        // keeps the user logged in.
+        account.refresh_token = "secret".into();
+        let json = serde_json::to_string(&account).unwrap();
+        let back: Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.refresh_token, "secret");
+        assert!(back.access_token.is_empty());
     }
 
     #[test]

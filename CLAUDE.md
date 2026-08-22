@@ -367,6 +367,28 @@ those are the errors real users hit. There is no bundled Azure client ID
 (`JUSTLAUNCHER_MSA_CLIENT_ID`), so offline accounts are the fallback path and
 must keep working.
 
+`finish_login` is the single place the chain ends, for both a fresh login and
+a refresh; `minecraft_token` is where the XSTS token is traded. It tries the
+current first-party endpoint (`launcher/login`, `PC_LAUNCHER`) and falls back
+to the older `authentication/login_with_xbox`. The fallback is there because
+no test account exists in this repo to prove the new reply shape against a
+live response — remove it once the new path has been seen working, not before.
+
+**Tokens live in the OS keychain, not `accounts.json`.** A live refresh token
+is a login. `auth::save_all` moves the two token fields into the keychain
+(`keyring`, service `JustLauncher`, one entry per account id) and writes the
+file without them; `load_all` puts them back. Both token fields are
+`skip_serializing_if = "String::is_empty"`, which is what makes the file
+tokenless rather than token-blank.
+
+The keychain is never assumed: a portable install, a headless Linux box with
+no session bus, a locked keyring. When it refuses, the tokens go back into the
+file and the user stays signed in — the old weakness, now the exception. That
+also means **a token found in the file wins on load**: it is the copy written
+last, and it is how a pre-keychain `accounts.json` migrates (read once,
+rewritten without them). Removing an account calls `auth::forget`, or the
+credential outlives the account it belonged to.
+
 ## Conventions
 
 ### The IPC contract is the wire format
@@ -445,10 +467,11 @@ adding an action there is what makes it appear everywhere it belongs.
 Deliberately few. The frontend has three: `marked` and
 `dompurify` (paired, for Modrinth descriptions) and `jsdom` for their test.
 `zip`, `reqwest`, `tokio`, `serde` are already present — reach
-for those before adding anything. `hickory-resolver` is the one crate here
-carrying real weight (18 transitive packages) for one job: SRV lookups need
-both DNS packets and the system's resolver configuration on three platforms,
-which is not a few lines. The frontend has no UI framework beyond
+for those before adding anything. Three crates here carry real weight, each for one job that is
+not a few lines: `hickory-resolver` (SRV lookups need DNS packets *and* the
+system's resolver configuration on three platforms), `keyring` (three
+different OS credential stores) and `windows-sys` (already in the tree; one
+call, `GlobalMemoryStatusEx`). The frontend has no UI framework beyond
 Svelte 5 runes and no SvelteKit (a desktop app needs no router); tests use
 `node --test` rather than a test runner. The release profile is tuned for size
 (`opt-level = "z"`, LTO, `panic = "abort"`, strip); keep the binary small.

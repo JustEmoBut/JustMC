@@ -363,3 +363,75 @@ async fn servers_are_listed_added_and_removed() {
     // An address is the one thing an entry cannot do without.
     assert!(servers::add(&instance.id, "Nowhere", "  ").await.is_err());
 }
+
+/// The account store, against the machine's real keychain. Ignored by default
+/// because it writes to the OS credential store; the point of the feature is
+/// that the tokens are not in the file, and only a real store proves it.
+#[tokio::test]
+#[ignore = "touches the OS keychain"]
+async fn tokens_live_in_the_keychain_not_the_file() {
+    use justlauncher_lib::auth::{self, Account, AccountKind};
+
+    let (home, _guard) = scratch_home();
+    let id = "jl-test-account-please-delete";
+    auth::forget(id).await;
+
+    let account = Account {
+        id: id.to_string(),
+        name: "Tester".into(),
+        kind: AccountKind::Microsoft,
+        access_token: "access-secret".into(),
+        refresh_token: "refresh-secret".into(),
+        expires_at: 1_700_000_000,
+        xuid: "1234".into(),
+    };
+    auth::save_all(std::slice::from_ref(&account)).await.unwrap();
+
+    let file = std::fs::read_to_string(home.join("accounts.json")).unwrap();
+    assert!(!file.contains("access-secret"), "the file still holds a token: {file}");
+    assert!(!file.contains("refresh-secret"), "the file still holds a token: {file}");
+    assert!(file.contains("Tester"), "the file lost the account itself");
+
+    let back = auth::load_all().await;
+    assert_eq!(back.len(), 1);
+    assert_eq!(back[0].access_token, "access-secret");
+    assert_eq!(back[0].refresh_token, "refresh-secret");
+    assert_eq!(back[0].expires_at, 1_700_000_000);
+
+    // Forgetting one leaves the account readable but its secrets gone.
+    auth::forget(id).await;
+    let back = auth::load_all().await;
+    assert_eq!(back.len(), 1);
+    assert!(back[0].refresh_token.is_empty());
+}
+
+/// An `accounts.json` from before the keychain: the tokens are read, then
+/// moved out of the file the first time anything looks at it.
+#[tokio::test]
+#[ignore = "touches the OS keychain"]
+async fn a_plaintext_file_is_migrated_on_first_read() {
+    use justlauncher_lib::auth;
+
+    let (home, _guard) = scratch_home();
+    let id = "jl-test-legacy-account-please-delete";
+    auth::forget(id).await;
+
+    let path = home.join("accounts.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &path,
+        format!(
+            r#"[{{"id":"{id}","name":"Old","kind":"microsoft","access_token":"old-access","refresh_token":"old-refresh","expires_at":5,"xuid":"9"}}]"#
+        ),
+    )
+    .unwrap();
+
+    let loaded = auth::load_all().await;
+    assert_eq!(loaded[0].refresh_token, "old-refresh", "the login must survive the move");
+
+    let file = std::fs::read_to_string(&path).unwrap();
+    assert!(!file.contains("old-refresh"), "the file was not migrated: {file}");
+    assert_eq!(auth::load_all().await[0].refresh_token, "old-refresh");
+
+    auth::forget(id).await;
+}

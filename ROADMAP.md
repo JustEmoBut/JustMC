@@ -15,6 +15,13 @@ the code there is C++/Qt and gets rethought for this stack, not ported.
   searches and installs packs, any build of them; Export offers the `.mrpack`
   format alongside the zip, with Modrinth-servable jars as downloads and the
   player's own files left out.
+- **Account tokens in the OS keychain.** `accounts.json` keeps who the
+  accounts are; `keyring` keeps what proves it, one entry per account. A
+  keychain that refuses — portable install, no session bus — falls back to the
+  file, and an old plaintext file migrates the first time it is read.
+- **The current Minecraft token endpoint.** `launcher/login` with
+  `PC_LAUNCHER`, with `authentication/login_with_xbox` as the fallback until
+  the new path is seen working against a real account.
 - **Server list with live pings.** `servers.dat` is read and written through a
   small NBT module that round-trips keys the launcher does not understand, and
   each entry is pinged over the status protocol for its MOTD, player count,
@@ -29,27 +36,14 @@ deploy steps and their extra libraries. Reference entry points:
 `launcher/minecraft/update/` and the component system in
 `launcher/minecraft/PackProfile.cpp`.
 
-## 2. Encrypt stored account tokens
-
-`accounts.json` holds live refresh and access tokens in plaintext — the same
-weakness the Qt original has. Store them in the OS keychain (Tauri plugin or
-equivalent), with a plaintext fallback for portable setups.
-
-## 3. Migrate the Minecraft token endpoint
-
-`auth.rs` takes the Minecraft token via `authentication/login_with_xbox`; the
-original uses `api.minecraftservices.com/launcher/login` (`PC_LAUNCHER`
-platform), the current first-party flow. Worth migrating before the old
-endpoint ages out.
-
-## 4. Skin management
+## 2. Skin management
 
 Upload and select skins and capes against
 `api.minecraftservices.com/minecraft/profile`, and render avatars from the
 profile's own skin instead of the third-party `api.mineatar.io`. Reference:
 `launcher/minecraft/skins/`.
 
-## 5. Launcher self-update
+## 3. Launcher self-update
 
 Check GitHub Releases, offer the update, swap the binary. The original ships a
 standalone updater exe (`launcher/updater/`); a Tauri updater plugin likely

@@ -58,6 +58,8 @@ Chromium is bundled.
 - The instance's multiplayer server list, read from and written to the game's
   own `servers.dat`, with a live status ping per server: MOTD, player count,
   latency and icon, SRV records resolved like the game does
+- Microsoft sign-in tokens kept in the OS keychain rather than in a file, with
+  a fallback for setups that have none
 
 ## Not included
 
