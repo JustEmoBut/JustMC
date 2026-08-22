@@ -215,16 +215,26 @@ pub fn rules_allow(rules: &[Rule]) -> bool {
 
 // ------------------------------------------------------------ library handling
 
-/// Turn `group:artifact:version[:classifier]` into a Maven relative path.
-fn maven_path(name: &str) -> Result<String> {
+/// Turn `group:artifact:version[:classifier][@extension]` into a Maven
+/// relative path.
+///
+/// The `@extension` suffix comes from Forge's install profiles, which name
+/// `neoform:1.21.1-...@zip` and `...:mappings@txt` — Mojang's own metadata
+/// never uses it, and reading it as part of the version instead produces a
+/// directory named `1.21.1-...@zip` that nothing will ever create.
+pub fn maven_path(name: &str) -> Result<String> {
+    let (name, extension) = match name.split_once('@') {
+        Some((rest, ext)) => (rest, ext),
+        None => (name, "jar"),
+    };
     let parts: Vec<&str> = name.split(':').collect();
-    if parts.len() < 3 {
+    if parts.len() < 3 || parts.iter().take(3).any(|p| p.is_empty()) {
         return Err(Error::msg(format!("malformed library name: {name}")));
     }
     let (group, artifact, version) = (parts[0], parts[1], parts[2]);
     let classifier = parts.get(3).map(|c| format!("-{c}")).unwrap_or_default();
     Ok(format!(
-        "{}/{artifact}/{version}/{artifact}-{version}{classifier}.jar",
+        "{}/{artifact}/{version}/{artifact}-{version}{classifier}.{extension}",
         group.replace('.', "/")
     ))
 }
@@ -275,6 +285,10 @@ impl Library {
         let path = paths::libraries().join(&rel);
 
         let job = match &downloads.artifact {
+            // An empty URL means the file is produced on this machine, not
+            // fetched: Forge lists its patched client jar that way, with a
+            // hash and a size but nowhere to get it from.
+            Some(a) if a.url.is_empty() => None,
             Some(a) => Some(Job {
                 url: a.url.clone(),
                 path: path.clone(),
@@ -462,6 +476,17 @@ mod tests {
             maven_path("org.lwjgl:lwjgl:3.3.3:natives-windows").unwrap(),
             "org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar"
         );
+        // Forge's own coordinates: an explicit extension, with and without a
+        // classifier. Both taken from a real install profile.
+        assert_eq!(
+            maven_path("net.neoforged:neoform:1.21.1-20240808.144430@zip").unwrap(),
+            "net/neoforged/neoform/1.21.1-20240808.144430/neoform-1.21.1-20240808.144430.zip"
+        );
+        assert_eq!(
+            maven_path("net.neoforged:neoform:1.21.1-20240808.144430:mappings@txt").unwrap(),
+            "net/neoforged/neoform/1.21.1-20240808.144430/neoform-1.21.1-20240808.144430-mappings.txt"
+        );
         assert!(maven_path("nope").is_err());
+        assert!(maven_path("a::1").is_err(), "an empty part is not a coordinate");
     }
 }

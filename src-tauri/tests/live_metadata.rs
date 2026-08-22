@@ -11,6 +11,12 @@ use justlauncher_lib::install::{classpath, resolve};
 use justlauncher_lib::instance::{Instance, Loader};
 use justlauncher_lib::launch::build_command;
 
+/// Whatever JVM is on PATH: the installer's processors are ordinary Java
+/// programs, and a machine running these tests is expected to have one.
+fn java() -> &'static std::path::Path {
+    std::path::Path::new(if cfg!(windows) { "java.exe" } else { "java" })
+}
+
 fn instance(mc_version: &str, loader: Loader, loader_version: &str) -> Instance {
     Instance {
         id: "live-test".into(),
@@ -328,4 +334,107 @@ async fn an_srv_published_server_is_found_from_its_bare_host() {
     let status = justlauncher_lib::servers::ping("2b2t.org".into()).await.unwrap();
     assert!(status.max > 0);
     assert!(!status.version.is_empty());
+}
+
+/// A real NeoForge install, end to end: fetch the installer, unpack its
+/// profile, download the tools, run the processors, and build the launch
+/// command from what comes out.
+///
+/// This is the only proof that matters for Forge. The processors are ten JVM
+/// invocations against a recipe no unit test can stand in for, and the failure
+/// mode when one of them is wrong is a patched jar that exists but crashes.
+#[tokio::test]
+#[ignore = "network, and runs a JVM for several minutes"]
+async fn neoforge_installs_and_builds_a_launch_command() {
+    use justlauncher_lib::{forge, install};
+
+    let home = std::env::temp_dir().join("jl-forge-live");
+    std::env::set_var("JUSTLAUNCHER_HOME", &home);
+
+    let inst = instance("1.21.1", Loader::NeoForge, "21.1.248");
+    inst.save().await.unwrap();
+
+    // The profile comes out of the installer, and it inherits from vanilla.
+    let version = resolve(&inst).await.expect("resolve");
+    assert_eq!(version.main_class, "cpw.mods.bootstraplauncher.BootstrapLauncher");
+
+    // What `install::install` does, minus the window it reports into: the
+    // libraries the recipe reads have to be on disk before it runs.
+    let cp = install::classpath(&version, "1.21.1").expect("classpath");
+    justlauncher_lib::download::run_quiet(cp.jobs).await.expect("libraries");
+    let jobs = forge::tool_jobs(Loader::NeoForge, "1.21.1", "21.1.248").await.expect("tools");
+    assert!(!jobs.is_empty(), "the recipe needs tools and named none");
+    justlauncher_lib::download::run_quiet(jobs).await.expect("tool download");
+    forge::patch(Loader::NeoForge, "1.21.1", "21.1.248", java()).await.expect("patch");
+
+    // The patched client jar is the whole point: nothing else proves the
+    // processors ran and produced something.
+    let patched = home
+        .join("shared/libraries/net/neoforged/neoforge/21.1.248/neoforge-21.1.248-client.jar");
+    assert!(patched.is_file(), "no patched jar at {}", patched.display());
+    assert!(patched.metadata().unwrap().len() > 1_000_000, "patched jar is suspiciously small");
+
+    let account = offline_account("TestPlayer").unwrap();
+    let args = build_command(&version, &inst, &account, &cp.jars, &inst.natives_dir()).unwrap();
+
+    let leftover: Vec<_> = args.iter().filter(|a| a.contains("${")).collect();
+    assert!(leftover.is_empty(), "unexpanded placeholders: {leftover:?}");
+    assert!(args.contains(&"cpw.mods.bootstraplauncher.BootstrapLauncher".to_string()));
+    // FML is told which build to load; without these the game starts vanilla.
+    assert!(args.iter().any(|a| a == "--fml.neoForgeVersion"), "{args:?}");
+    assert!(args.iter().any(|a| a == "21.1.248"), "{args:?}");
+    // The module path the profile asks for has to name real files.
+    let module_path = args.iter().find(|a| a.contains("bootstraplauncher")).expect("module path");
+    for entry in module_path.split(if cfg!(windows) { ';' } else { ':' }) {
+        if entry.ends_with(".jar") {
+            assert!(std::path::Path::new(entry).is_file(), "missing module jar: {entry}");
+        }
+    }
+}
+
+/// The same, for Forge proper. Not a duplicate of the NeoForge test: Forge
+/// puts its patched jar on the classpath, and ships two artifacts inside the
+/// installer that no repository serves.
+#[tokio::test]
+#[ignore = "network, and runs a JVM for several minutes"]
+async fn forge_installs_and_puts_its_patched_jar_on_the_classpath() {
+    use justlauncher_lib::{forge, install};
+
+    let home = std::env::temp_dir().join("jl-forge-live-mf");
+    std::env::set_var("JUSTLAUNCHER_HOME", &home);
+
+    let inst = instance("1.21.1", Loader::Forge, "52.1.16");
+    inst.save().await.unwrap();
+
+    let version = resolve(&inst).await.expect("resolve");
+    assert_eq!(version.main_class, "net.minecraftforge.bootstrap.ForgeBootstrap");
+
+    let cp = install::classpath(&version, "1.21.1").expect("classpath");
+    // The patched jar is listed as a library with no URL, so it must be on the
+    // classpath and must not be something the downloader tries to fetch.
+    let patched = home.join(
+        "shared/libraries/net/minecraftforge/forge/1.21.1-52.1.16/forge-1.21.1-52.1.16-client.jar",
+    );
+    assert!(cp.jars.contains(&patched), "the patched jar is not on the classpath");
+    assert!(!cp.jobs.iter().any(|j| j.url.is_empty()), "a job with no URL to fetch from");
+
+    justlauncher_lib::download::run_quiet(cp.jobs).await.expect("libraries");
+    let jobs = forge::tool_jobs(Loader::Forge, "1.21.1", "52.1.16").await.expect("tools");
+    justlauncher_lib::download::run_quiet(jobs).await.expect("tool download");
+    forge::patch(Loader::Forge, "1.21.1", "52.1.16", java()).await.expect("patch");
+
+    assert!(patched.is_file(), "no patched jar at {}", patched.display());
+    // The two artifacts that exist only inside the installer.
+    for name in ["universal", "shim"] {
+        let path = home.join(format!(
+            "shared/libraries/net/minecraftforge/forge/1.21.1-52.1.16/forge-1.21.1-52.1.16-{name}.jar"
+        ));
+        assert!(path.is_file(), "the installer's {name} jar was not unpacked");
+    }
+
+    let account = offline_account("TestPlayer").unwrap();
+    let args = build_command(&version, &inst, &account, &cp.jars, &inst.natives_dir()).unwrap();
+    let leftover: Vec<_> = args.iter().filter(|a| a.contains("${")).collect();
+    assert!(leftover.is_empty(), "unexpanded placeholders: {leftover:?}");
+    assert!(args.iter().any(|a| a == "forge_client"), "the FML launch target is missing");
 }

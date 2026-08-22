@@ -22,6 +22,10 @@ the code there is C++/Qt and gets rethought for this stack, not ported.
 - **The current Minecraft token endpoint.** `launcher/login` with
   `PC_LAUNCHER`, with `authentication/login_with_xbox` as the fallback until
   the new path is seen working against a real account.
+- **Forge and NeoForge.** `forge.rs` fetches an installer, unpacks its profile
+  and runs the processors that build the patched client jar. Modern format
+  only (`spec` 1: Forge 1.13+, every NeoForge); older Forge is refused with a
+  message. `.mrpack` imports of Forge packs work as a result.
 - **Server list with live pings.** `servers.dat` is read and written through a
   small NBT module that round-trips keys the launcher does not understand, and
   each entry is pinged over the status protocol for its MOTD, player count,
@@ -29,27 +33,20 @@ the code there is C++/Qt and gets rethought for this stack, not ported.
   (`hickory-resolver`) the way the game's own list does; a typed port is left
   alone.
 
-## 1. Forge and NeoForge
-
-The biggest loader gap, and the biggest job here: installer-profile parsing,
-deploy steps and their extra libraries. Reference entry points:
-`launcher/minecraft/update/` and the component system in
-`launcher/minecraft/PackProfile.cpp`.
-
-## 2. Quick Play: join a server or world on double click
+## 1. Quick Play: join a server or world on double click
 
 `--quickPlayMultiplayer <address>` and `--quickPlaySingleplayer <folder>`
 (1.20+) launch straight into a server or a save, which is what the Servers and
 Worlds panels are missing. A few arguments in `launch::build_command` plus a
 double-click handler in each panel. Prism shipped this on 2026-08-21 (#5941).
 
-## 3. Total play time, and sorting by it
+## 2. Total play time, and sorting by it
 
 Per-instance play time is already recorded. What is missing is the launcher's
 own total, sorting the instance list by it, and a per-instance opt out of
 being counted. Prism: #5881, #5714, #5765.
 
-## 4. Loose ends from Prism's develop
+## 3. Loose ends from Prism's develop
 
 Small, each independent, each with a real complaint behind it:
 
@@ -61,14 +58,14 @@ Small, each independent, each with a real complaint behind it:
 - `UpdateReview.svelte` has no select-all / select-none. Prism #5946.
 - No restart button while an instance runs. Prism #5646.
 
-## 5. Skin management
+## 4. Skin management
 
 Upload and select skins and capes against
 `api.minecraftservices.com/minecraft/profile`, and render avatars from the
 profile's own skin instead of the third-party `api.mineatar.io`. Reference:
 `launcher/minecraft/skins/`.
 
-## 6. Launcher self-update
+## 5. Launcher self-update
 
 Check GitHub Releases, offer the update, swap the binary. The original ships a
 standalone updater exe (`launcher/updater/`); a Tauri updater plugin likely

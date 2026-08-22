@@ -5,7 +5,7 @@ use crate::download::{self, Job};
 use crate::error::{Error, Result};
 use crate::instance::{Instance, Loader};
 use crate::mojang::{self, VersionJson};
-use crate::{loader, paths};
+use crate::{forge, java, jre, loader, paths};
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
@@ -40,8 +40,14 @@ pub async fn resolve(instance: &Instance) -> Result<VersionJson> {
             instance.loader.label()
         )));
     }
-    let child =
-        loader::profile(instance.loader, &instance.mc_version, &instance.loader_version).await?;
+    // Forge's profile lives inside an installer rather than on a metadata
+    // server, so getting it is a download and an unzip; building what it
+    // describes is `forge::patch`, later in `install`.
+    let child = if instance.loader.is_forge() {
+        forge::profile(instance.loader, &instance.mc_version, &instance.loader_version).await?
+    } else {
+        loader::profile(instance.loader, &instance.mc_version, &instance.loader_version).await?
+    };
     Ok(mojang::merge(vanilla, child))
 }
 
@@ -159,6 +165,31 @@ pub async fn install(app: &AppHandle, instance: &mut Instance) -> Result<Version
     let cp = classpath(&version, &instance.mc_version)?;
 
     download::run(app, "Libraries", cp.jobs).await?;
+
+    // The patched client jar is built here, after the libraries it is built
+    // from have arrived and before anything asks whether the instance is
+    // ready. It needs a JVM of its own -- the same one the game will use.
+    if instance.loader.is_forge() {
+        let required = version.java_version.as_ref().map_or(8, |j| j.major_version);
+        let java = match java::find(Some(instance.java_path.as_str()), required) {
+            Some(path) => path,
+            None => {
+                let component = version.java_version.as_ref().map(|j| j.component.as_str());
+                jre::ensure(app, component, required).await?
+            }
+        };
+        let jobs =
+            forge::tool_jobs(instance.loader, &instance.mc_version, &instance.loader_version)
+                .await?;
+        download::run(app, &format!("{} tools", instance.loader.label()), jobs).await?;
+        forge::patch(
+            instance.loader,
+            &instance.mc_version,
+            &instance.loader_version,
+            std::path::Path::new(&java),
+        )
+        .await?;
+    }
 
     if let Some(index_ref) = &version.asset_index {
         let index = mojang::asset_index(index_ref).await?;

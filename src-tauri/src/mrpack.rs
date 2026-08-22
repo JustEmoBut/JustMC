@@ -81,16 +81,15 @@ fn loader_of(deps: &HashMap<String, String>) -> Result<(String, Loader, String)>
         .ok_or_else(|| Error::msg("Pack does not say which Minecraft version it is for."))?
         .clone();
 
-    for unsupported in ["forge", "neoforge"] {
-        if deps.contains_key(unsupported) {
-            return Err(Error::msg(format!(
-                "This is a {unsupported} pack. JustLauncher launches vanilla, Fabric and Quilt."
-            )));
-        }
-    }
     // Quilt first: a pack that names both is a Quilt pack that also runs the
-    // Fabric mods it lists.
-    for (key, loader) in [("quilt-loader", Loader::Quilt), ("fabric-loader", Loader::Fabric)] {
+    // Fabric mods it lists. NeoForge before Forge for the same reason -- a
+    // pack that names both is a NeoForge pack.
+    for (key, loader) in [
+        ("quilt-loader", Loader::Quilt),
+        ("fabric-loader", Loader::Fabric),
+        ("neoforge", Loader::NeoForge),
+        ("forge", Loader::Forge),
+    ] {
         if let Some(v) = deps.get(key) {
             return Ok((mc, loader, v.clone()));
         }
@@ -294,6 +293,8 @@ pub async fn export(inst: &Instance) -> Result<PathBuf> {
         Loader::Vanilla => None,
         Loader::Fabric => Some("fabric-loader"),
         Loader::Quilt => Some("quilt-loader"),
+        Loader::Forge => Some("forge"),
+        Loader::NeoForge => Some("neoforge"),
     };
     if let Some(key) = loader_key {
         dependencies.insert(key.to_string(), inst.loader_version.clone());
@@ -464,10 +465,25 @@ mod tests {
     }
 
     #[test]
-    fn other_loaders_are_refused_before_anything_is_created() {
-        for l in ["forge", "neoforge"] {
-            assert!(loader_of(&deps(&[("minecraft", "1.20.1"), (l, "1.0")])).is_err(), "{l}");
+    fn forge_packs_name_their_loader_by_a_key_of_their_own() {
+        for (key, want) in [("forge", Loader::Forge), ("neoforge", Loader::NeoForge)] {
+            let (mc, loader, version) =
+                loader_of(&deps(&[("minecraft", "1.20.1"), (key, "47.2.0")])).unwrap();
+            assert_eq!((mc.as_str(), loader, version.as_str()), ("1.20.1", want, "47.2.0"));
         }
+        // A pack naming both is NeoForge's; Forge jars of that era do not load
+        // in it, so the more specific key wins.
+        let (_, loader, _) = loader_of(&deps(&[
+            ("minecraft", "1.20.1"),
+            ("forge", "47.2.0"),
+            ("neoforge", "47.1.0"),
+        ]))
+        .unwrap();
+        assert_eq!(loader, Loader::NeoForge);
+    }
+
+    #[test]
+    fn a_pack_without_a_minecraft_version_is_refused() {
         assert!(loader_of(&deps(&[("fabric-loader", "0.16.0")])).is_err());
     }
 

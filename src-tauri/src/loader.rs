@@ -70,6 +70,16 @@ fn version_key(version: &str) -> (Vec<u64>, bool) {
 }
 
 /// Loader versions compatible with a given Minecraft version, newest first.
+/// Every loader's build list, whichever module knows how to get it. One entry
+/// point so the UI does not have to know which loaders ship an installer.
+pub async fn builds(loader: Loader, mc_version: &str) -> Result<Vec<LoaderInfo>> {
+    match loader {
+        Loader::Vanilla => Ok(Vec::new()),
+        l if l.is_forge() => crate::forge::versions(l, mc_version).await,
+        l => loaders(l, mc_version).await,
+    }
+}
+
 pub async fn loaders(loader: Loader, mc_version: &str) -> Result<Vec<LoaderInfo>> {
     let (meta, absent) = meta(loader);
     let entries: Vec<LoaderEntry> =
@@ -90,6 +100,9 @@ pub async fn loaders(loader: Loader, mc_version: &str) -> Result<Vec<LoaderInfo>
 /// The build a new instance gets: the one Fabric recommends, or -- for Quilt,
 /// which recommends none -- simply the newest.
 pub async fn latest_loader(loader: Loader, mc_version: &str) -> Result<String> {
+    if loader.is_forge() {
+        return crate::forge::latest(loader, mc_version).await;
+    }
     let list = loaders(loader, mc_version).await?;
     list.iter()
         .find(|l| l.stable)

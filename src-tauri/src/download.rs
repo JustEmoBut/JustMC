@@ -384,6 +384,49 @@ pub async fn json<T: serde::de::DeserializeOwned>(url: &str) -> Result<T> {
     Ok(send(client()?.get(url)).await?.json().await?)
 }
 
+/// Download a batch with no window to report into: same parallelism, same
+/// verification, no events. The install path always has a window and uses
+/// `run`; this is for a caller that has no app handle at all.
+pub async fn run_quiet(jobs: Vec<Job>) -> Result<()> {
+    let client = client()?;
+    let bytes_done = Arc::new(AtomicU64::new(0));
+    let pending: Vec<Job> = futures::stream::iter(jobs)
+        .map(|job| async move { (is_valid(&job).await, job) })
+        .buffer_unordered(PARALLEL * 4)
+        .filter_map(|(valid, job)| async move { (!valid).then_some(job) })
+        .collect()
+        .await;
+
+    futures::stream::iter(pending)
+        .map(|job| {
+            let (client, bytes_done) = (client.clone(), bytes_done.clone());
+            async move { fetch_one(&client, &job, &bytes_done).await }
+        })
+        .buffer_unordered(PARALLEL)
+        .try_collect::<Vec<_>>()
+        .await?;
+    Ok(())
+}
+
+/// Fetch one file to a path, with the retry ladder but no progress events.
+///
+/// For the single file that is not part of a batch: a Forge installer, fetched
+/// while resolving a version, where there is no window open to report into.
+pub async fn fetch(url: &str, path: &std::path::Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let bytes = send(client()?.get(url)).await?.bytes().await?;
+    tokio::fs::write(path, &bytes).await?;
+    Ok(())
+}
+
+/// Fetch a document as text. Maven metadata is XML, which is the one thing the
+/// launcher reads that is not JSON.
+pub async fn text(url: &str) -> Result<String> {
+    Ok(send(client()?.get(url)).await?.text().await?)
+}
+
 /// POST a JSON body and decode the JSON reply. Modrinth's bulk update check is
 /// the only caller: it takes a list of hashes too long for a query string.
 pub async fn post_json<T: serde::de::DeserializeOwned>(

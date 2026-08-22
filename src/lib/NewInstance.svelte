@@ -3,6 +3,7 @@
     api,
     errorMessage,
     loaderName,
+    latestLabel,
     type FabricLoader,
     type Loader,
     type ManifestVersion,
@@ -266,7 +267,7 @@
     <div class="field">
       <label for="loader">Mod loader</label>
       <div class="segmented" id="loader">
-        {#each [["vanilla", "Vanilla"], ["fabric", "Fabric"], ["quilt", "Quilt"]] as [value, text] (value)}
+        {#each [["vanilla", "Vanilla"], ["fabric", "Fabric"], ["quilt", "Quilt"], ["forge", "Forge"], ["neoforge", "NeoForge"]] as [value, text] (value)}
           <button
             class:active={loader === value}
             onclick={() => (loader = value as Loader)}
@@ -281,9 +282,10 @@
       <div class="field">
         <label for="loader-version">{loaderName(loader)} loader</label>
         <select id="loader-version" bind:value={loaderVersion}>
-          <!-- Fabric flags the one build it recommends; Quilt flags nothing and
-               ships betas as its normal channel, so its default is the newest. -->
-          <option value="">{loader === "quilt" ? "Latest" : "Latest stable"}</option>
+          <!-- Fabric and Forge flag the one build they recommend; Quilt flags
+               nothing and ships betas as its normal channel, so its default is
+               the newest. -->
+          <option value="">{latestLabel(loader)}</option>
           {#each loaders as l (l.version)}
             <option value={l.version}>{l.version}{l.stable ? " · recommended" : ""}</option>
           {/each}

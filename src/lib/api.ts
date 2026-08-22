@@ -1,10 +1,27 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type Loader = "vanilla" | "fabric" | "quilt";
+export type Loader = "vanilla" | "fabric" | "quilt" | "forge" | "neoforge";
+
+const LOADER_NAMES: Record<Loader, string> = {
+  vanilla: "Vanilla",
+  fabric: "Fabric",
+  quilt: "Quilt",
+  forge: "Forge",
+  neoforge: "NeoForge",
+};
 
 /** Human label for a loader; "Vanilla" is what an unmodded instance is called. */
 export function loaderName(loader: Loader) {
-  return loader === "fabric" ? "Fabric" : loader === "quilt" ? "Quilt" : "Vanilla";
+  return LOADER_NAMES[loader] ?? "Vanilla";
+}
+
+/**
+ * Whether the picker's blank entry means "the newest build" rather than "the
+ * newest recommended one". Quilt recommends nothing and ships betas as its
+ * normal channel; every other loader points at a build.
+ */
+export function latestLabel(loader: Loader) {
+  return loader === "quilt" ? "Latest" : "Latest stable";
 }
 
 /** Which instance folder a mods call acts on; the values are the folder names. */

@@ -14,13 +14,14 @@ pub mod logs;
 pub mod mods;
 pub mod modrinth;
 
+pub mod forge;
 pub mod nbt;
 pub mod screenshots;
 pub mod servers;
 pub mod settings;
 pub mod worlds;
 
-mod download;
+pub mod download;
 mod error;
 mod java;
 mod paths;
@@ -49,7 +50,9 @@ async fn list_loaders(
     mc_version: String,
     loader: Loader,
 ) -> Result<Vec<loader::LoaderInfo>> {
-    loader::loaders(loader, &mc_version).await
+    // `builds` and not `loaders`: Forge's list comes from a Maven index rather
+    // than a metadata API, and the picker should not have to know that.
+    loader::builds(loader, &mc_version).await
 }
 
 // ------------------------------------------------------------------ instances

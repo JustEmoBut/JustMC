@@ -6,9 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Minecraft launcher: Rust + Tauri 2 backend, Svelte 5 + Vite frontend. A
 clean-slate rewrite of a Qt/C++ Prism Launcher fork; it does **not** read
-Prism/MultiMC data. Scope is vanilla, Fabric and Quilt launching, plus the mods folder
-of a Fabric instance, installing mods from Modrinth and importing a Modrinth
-modpack — see README for what is deliberately out of scope.
+Prism/MultiMC data. Scope is vanilla, Fabric, Quilt, Forge and NeoForge
+launching, plus the content folders of an instance, installing mods from
+Modrinth and importing a Modrinth modpack — see README for what is deliberately
+out of scope.
 
 ## Commands
 
@@ -127,8 +128,8 @@ The messiest domain, because Minecraft's format changed repeatedly:
   `install::write_named_assets`.
 - **Fabric and Quilt** are profiles that inherit from a vanilla version.
   `mojang::merge` stacks one; child libraries go **first** so a patched copy
-  shadows vanilla's. Forge is out because it patches the client jar instead,
-  which is a different job entirely.
+  shadows vanilla's. Forge inherits the same way but only after its jar is
+  built — see `forge.rs`.
 
 ### Loaders (`loader.rs`)
 
@@ -153,6 +154,55 @@ instance, because Quilt runs Fabric mods and asking for `quilt` alone returned
 4.6k of the 18.5k mods available for 1.21.1. Modrinth ORs the entries inside one
 facet and ANDs the facets, so both tags must share one bracket pair.
 
+### Forge and NeoForge (`forge.rs`)
+
+The other loaders publish a profile and installing one is a download. Forge
+ships an **installer**, and the client jar it wants does not exist anywhere
+until this machine builds it. That is the whole difference, and why this is not
+`loader.rs`.
+
+An installer holds `version.json` (an ordinary `inheritsFrom` profile, so
+`mojang::merge` stacks it like Fabric's), `install_profile.json` (the recipe:
+extra libraries, a `data` map, and `processors` — tool jars to run with a JVM),
+and sometimes a `maven/` tree of artifacts no repository serves.
+
+Both projects use the same format, `spec` 1. Forge before 1.13 used a different
+installer and is refused with a message rather than failing halfway through.
+
+The work is split in two so the module never names `AppHandle`:
+
+- `profile` fetches the installer and unpacks the two JSON files. No JVM, so it
+  runs wherever a version is resolved.
+- `tool_jobs` + `patch` build the jar. `install::install` runs the downloads
+  through its own progress window and then calls `patch`, which shells out to
+  the same JVM the game will use. Both are no-ops once the patched jar exists —
+  its absence is the only reason to run a series of JVMs.
+
+**A test binary that so much as names `AppHandle` will not start** (Windows:
+`STATUS_ENTRYPOINT_NOT_FOUND`, the webview runtime gets linked into a console
+exe). That is what the split is for, and why `download::run_quiet` exists
+alongside `run`: it is the same parallel, verified download with no events.
+
+Four details, each verified against a real installer (Forge 1.21.1-52.1.16,
+NeoForge 21.1.248) and each a silent wrong result if assumed away:
+
+- **A library with an empty `url` is an output, not a download.** Forge's
+  `forge:<version>:client` is the patched jar: on the classpath, with a hash
+  and a size, produced locally. `Library::resolve` returns no job for it.
+- **NeoForge does not put its patched jar on the classpath at all.** FML finds
+  it under `libraryDirectory` from the `--fml.*` arguments, so the only proof
+  it was built is that the file exists.
+- **Maven coordinates here carry an `@extension`** (`neoform:1.21.1-...@zip`,
+  `...:mappings@txt`). Mojang's metadata never does; reading it as part of the
+  version makes a directory nothing will ever create.
+- **`data` values come in three shapes**: `[maven]` is a file in the library
+  store, `/data/client.lzma` is a path from the *installer's root*, and
+  `'quoted'` is a literal.
+
+`live_metadata` installs both for real — the processors are a series of JVM
+invocations against a recipe no unit test stands in for, and a wrong step
+produces a jar that exists and crashes.
+
 ### Instance archives (`pack.rs`, `mrpack.rs`)
 
 Two zip formats, kept apart because only the extension distinguishes them:
@@ -168,8 +218,9 @@ a drop and any future caller all route the same way.
   folders. It downloads rather than unpacks, so every file becomes a
   `download::Job` and is SHA-1 verified like any library. The index is
   attacker-controlled, so `safe_join` guards every path and plain-HTTP downloads
-  are refused. A pack naming `forge`, `neoforge` or `quilt-loader` is rejected
-  **before** an instance is created; `env.client == "unsupported"` marks a
+  are refused. A pack names its loader with a key of its own
+  (`fabric-loader`, `quilt-loader`, `forge`, `neoforge`) and the more specific
+  one wins when two are listed; `env.client == "unsupported"` marks a
   server-only file and is the only reason to skip one. A failure part-way
   deletes the instance rather than leaving something that looks playable.
 

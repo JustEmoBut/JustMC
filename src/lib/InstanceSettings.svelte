@@ -6,6 +6,7 @@
     errorMessage,
     type FabricLoader,
     loaderName,
+    latestLabel,
     type Instance,
     type JavaInstall,
     type ManifestVersion,
@@ -160,7 +161,7 @@
     <div class="field">
       <label for="s-loader">{loaderName(draft.loader)} loader</label>
       <select id="s-loader" bind:value={draft.loader_version}>
-        <option value="">{draft.loader === "quilt" ? "Latest" : "Latest stable"}</option>
+        <option value="">{latestLabel(draft.loader)}</option>
         <!-- Fabric's `stable` flag marks the one build it currently recommends,
              not a quality judgement on the rest, which are simply older. Quilt
              publishes no such flag, so nothing there is labelled. -->

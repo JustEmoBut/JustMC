@@ -19,8 +19,11 @@ Chromium is bundled.
 
 - Microsoft account sign-in (OAuth device code flow) and offline accounts
 - Full vanilla version list, releases and snapshots, back to the oldest versions
-- Fabric and Quilt loaders, with the loader build pinnable when an instance is
-  created and afterwards
+- Fabric, Quilt, Forge and NeoForge loaders, with the loader build pinnable
+  when an instance is created and afterwards. Forge and NeoForge run their own
+  installer's recipe to build the patched client jar, so no external installer
+  is involved; Forge older than 1.13 uses a different format and is refused
+  with a message
 - Create, configure, delete instances; per-instance memory, Java and JVM args
 - Parallel downloading with SHA-1 verification, resumable across runs,
   retried with backoff on a blip or a rate limit, with live transfer rate
@@ -37,7 +40,7 @@ Chromium is bundled.
   is already installed, read a project and install any version of it, with its
   required dependencies
 - Browse Modrinth's modpacks from the Add Instance dialog and install any build
-  of one; a Forge or NeoForge pack says so rather than failing later
+  of one, whichever loader it asks for
 - Export an instance as a Modrinth `.mrpack` any launcher can install — jars
   Modrinth can serve become downloads, the rest overrides, and the player's
   own worlds, screenshots, keybinds and server list stay out
@@ -63,9 +66,8 @@ Chromium is bundled.
 
 ## Not included
 
-CurseForge, world creation and renaming, custom themes. Planned work —
-Forge, NeoForge, skin management and more — lives in the
-[roadmap](ROADMAP.md).
+CurseForge, world creation and renaming, custom themes. Planned work — Quick
+Play, skin management and more — lives in the [roadmap](ROADMAP.md).
 
 CurseForge is absent for a reason rather than an oversight: its API needs a
 per-launcher key that cannot be shipped in an open source build, and it lets
@@ -116,6 +118,7 @@ src-tauri/src/
   mrpack.rs         Modrinth modpack (.mrpack) import and export
   mods.rs           mods, resourcepacks, shaderpacks: list, enable, delete
   modrinth.rs       Modrinth search and jar resolution
+  forge.rs          Forge/NeoForge installer profiles and jar patching
   worlds.rs         world listing, backup and delete
   servers.rs        servers.dat editing and status pings
   nbt.rs            the slice of NBT servers.dat needs

@@ -17,16 +17,19 @@ pub enum Loader {
     Vanilla,
     Fabric,
     Quilt,
+    Forge,
+    NeoForge,
 }
 
 impl Loader {
-    /// The prefix both loaders use for the profile they publish, which is also
-    /// the version id an instance launches.
+    /// The prefix Fabric and Quilt use for the profile they publish, which is
+    /// also the version id an instance launches. Forge names its own profiles
+    /// differently, so `version_id` asks `forge::profile_id` instead.
     fn profile_prefix(self) -> &'static str {
         match self {
-            Loader::Vanilla => "",
             Loader::Fabric => "fabric-loader",
             Loader::Quilt => "quilt-loader",
+            _ => "",
         }
     }
 
@@ -35,15 +38,27 @@ impl Loader {
             Loader::Vanilla => "Vanilla",
             Loader::Fabric => "Fabric",
             Loader::Quilt => "Quilt",
+            Loader::Forge => "Forge",
+            Loader::NeoForge => "NeoForge",
         }
+    }
+
+    /// Whether this loader is installed by running an installer rather than by
+    /// fetching a published profile -- the line between `loader.rs` and
+    /// `forge.rs`.
+    pub fn is_forge(self) -> bool {
+        matches!(self, Loader::Forge | Loader::NeoForge)
     }
 
     /// Modrinth's loader tags for mods this instance can run. Quilt loads
     /// Fabric mods, so both are asked for -- Quilt alone returns a quarter of
-    /// the catalogue.
+    /// the catalogue. NeoForge is asked for on its own: it forked at 1.20.2 and
+    /// a Forge jar of that era does not load in it.
     pub fn mod_loaders(self) -> &'static [&'static str] {
         match self {
             Loader::Quilt => &["quilt", "fabric"],
+            Loader::Forge => &["forge"],
+            Loader::NeoForge => &["neoforge"],
             _ => &["fabric"],
         }
     }
@@ -113,6 +128,9 @@ impl Instance {
     pub fn version_id(&self) -> String {
         match self.loader {
             Loader::Vanilla => self.mc_version.clone(),
+            loader if loader.is_forge() => {
+                crate::forge::profile_id(loader, &self.mc_version, &self.loader_version)
+            }
             loader => format!(
                 "{}-{}-{}",
                 loader.profile_prefix(),
