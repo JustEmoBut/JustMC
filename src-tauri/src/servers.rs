@@ -298,12 +298,22 @@ async fn resolve_srv(host: &str) -> Option<(String, u16)> {
     if host.parse::<std::net::IpAddr>().is_ok() {
         return None;
     }
-    let resolver = hickory_resolver::Resolver::builder_tokio().ok()?.build();
+    // 0.26 builds fallibly: no resolver configuration on the machine is a
+    // reason to use the address as typed, not to fail the ping.
+    let resolver = hickory_resolver::Resolver::builder_tokio().ok()?.build().ok()?;
     let lookup = resolver.srv_lookup(format!("_minecraft._tcp.{host}.")).await.ok()?;
-    // The record set is priority/weight ordered by the library; the first is
-    // the one to use, and a target of "." means "no service here".
-    let record = lookup.iter().find(|r| !r.target().is_root())?;
-    Some((record.target().to_utf8().trim_end_matches('.').to_string(), record.port()))
+    // The answer section carries the SRV records; a target of "." is the
+    // format's way of saying "no service here", so it is skipped rather than
+    // connected to.
+    let record = lookup
+        .answers()
+        .iter()
+        .filter_map(|record| match &record.data {
+            hickory_resolver::proto::rr::RData::SRV(srv) => Some(srv),
+            _ => None,
+        })
+        .find(|srv| !srv.target.is_root())?;
+    Some((record.target.to_utf8().trim_end_matches('.').to_string(), record.port))
 }
 
 /// Ask a server for its status.

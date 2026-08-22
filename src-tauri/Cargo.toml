@@ -28,7 +28,7 @@ flate2 = "1"
 thiserror = "2"
 uuid = { version = "1", features = ["v3", "v4", "serde"] }
 dirs = "5"
-hickory-resolver = { version = "0.25.2", default-features = false, features = ["system-config", "tokio"] }
+hickory-resolver = { version = "0.26", default-features = false, features = ["system-config", "tokio"] }
 keyring = { version = "3.6.3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service"] }
 
 # Small binary: strip symbols, optimise for size, one codegen unit, abort on panic.
