@@ -478,6 +478,18 @@ as `type` is also *written* as `type`. `invoke<T>()` is an unchecked assertion �
 a mismatch is silently `undefined` at runtime. When changing a Rust type that
 crosses the boundary, update `src/lib/api.ts` in the same edit.
 
+### A snippet must be a direct child of the component it is passed to
+
+`{#snippet footer()}` reaches `Modal` as a prop only when it sits directly
+inside `<Modal>…</Modal>`. Nested one level deeper — inside an `{#if}` that
+switches the dialog's mode, say — Svelte treats it as a local snippet, passes
+nothing, and the component renders no footer. Nothing warns: not
+`svelte-check`, not the build. The Add Instance dialog lost its Cancel and
+Create buttons that way, and the dialog still looked otherwise normal.
+
+When a footer's content depends on state, put the condition *inside* the
+snippet, never around it.
+
 ### Scroll containers
 
 Setting `overflow-y: auto` makes the browser compute `overflow-x` as `auto`

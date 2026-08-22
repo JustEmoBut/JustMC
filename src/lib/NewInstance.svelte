@@ -328,17 +328,6 @@
       </p>
     </div>
 
-    {#snippet footer()}
-      <button onclick={onclose}>Cancel</button>
-      <button
-        class="primary"
-        onclick={create}
-        disabled={busy || loading || !name.trim() ||
-          (loader !== "vanilla" && loaderOk === null)}
-      >
-        {busy ? "Creating…" : "Create"}
-      </button>
-    {/snippet}
   {:else}
     <div class="pack-tools">
       <button class="ghost" onclick={() => (mode = "form")}>← Back</button>
@@ -458,6 +447,23 @@
       </div>
     </div>
   {/if}
+
+  <!-- A snippet only reaches the component as a prop when it is a direct child
+       of it. Nested inside the mode switch above, this one was silently never
+       passed and the dialog had no buttons at all. -->
+  {#snippet footer()}
+    <button onclick={onclose}>Cancel</button>
+    {#if mode === "form"}
+      <button
+        class="primary"
+        onclick={create}
+        disabled={busy || loading || !name.trim() ||
+          (loader !== "vanilla" && loaderOk === null)}
+      >
+        {busy ? "Creating…" : "Create"}
+      </button>
+    {/if}
+  {/snippet}
 </Modal>
 
 <style>
