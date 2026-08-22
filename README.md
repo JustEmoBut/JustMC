@@ -29,7 +29,8 @@ Chromium is bundled.
   1.7.2 and older need
 - Mod management for Fabric instances, and resource packs and shaders for any
   instance: list, enable, disable, delete, drop a file on the window, and check
-  what is installed for newer builds
+  what is installed for newer builds; a pack unpacked into a folder is listed
+  like a zip
 - Browse Modrinth from inside the launcher — mods, resource packs and shaders:
   sort by relevance, downloads, followers or date, filter by category, hide what
   is already installed, read a project and install any version of it, with its
@@ -43,12 +44,16 @@ Chromium is bundled.
 - Total play time per instance, and launcher settings: the memory, Java and JVM
   arguments a new instance starts with, and whether the window minimises while
   the game runs
-- Live game log with error highlighting; copying it redacts session tokens and
-  usernames
+- Live game log with error highlighting, plus the game's own old logs and
+  crash reports; copying redacts session tokens and usernames
+- Per-instance worlds with their in-game names: back one up as a zip that
+  unpacks straight back into `saves`, or delete it
+- Browse an instance's screenshots and delete the ones not worth keeping
 
 ## Not included
 
-CurseForge, world manager, custom themes, Forge/NeoForge, skin management.
+CurseForge, world creation and renaming, custom themes, Forge/NeoForge, skin
+management.
 
 CurseForge is absent for a reason rather than an oversight: its API needs a
 per-launcher key that cannot be shipped in an open source build, and it lets
@@ -99,6 +104,9 @@ src-tauri/src/
   mrpack.rs         Modrinth modpack (.mrpack) import
   mods.rs           mods, resourcepacks, shaderpacks: list, enable, delete
   modrinth.rs       Modrinth search and jar resolution
+  worlds.rs         world listing, backup and delete
+  logs.rs           game, launcher and crash report logs
+  screenshots.rs    screenshot listing and delete
 ```
 
 Data lives in `%APPDATA%/JustLauncher` (`~/.local/share/JustLauncher` on Linux),
