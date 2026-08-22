@@ -28,6 +28,7 @@ flate2 = "1"
 thiserror = "2"
 uuid = { version = "1", features = ["v3", "v4", "serde"] }
 dirs = "5"
+hickory-resolver = { version = "0.25.2", default-features = false, features = ["system-config", "tokio"] }
 
 # Small binary: strip symbols, optimise for size, one codegen unit, abort on panic.
 [profile.release]

@@ -318,3 +318,14 @@ async fn a_public_server_answers_its_status() {
     // A port nothing listens on is an error, not a hang or a panic.
     assert!(justlauncher_lib::servers::ping("127.0.0.1:1".into()).await.is_err());
 }
+
+/// A server published through an SRV record. 2b2t answers on
+/// `connect.2b2t.org` via `_minecraft._tcp.2b2t.org`, and the bare host is
+/// what a player types — so this is the lookup, not just the connection.
+#[tokio::test]
+#[ignore = "network"]
+async fn an_srv_published_server_is_found_from_its_bare_host() {
+    let status = justlauncher_lib::servers::ping("2b2t.org".into()).await.unwrap();
+    assert!(status.max > 0);
+    assert!(!status.version.is_empty());
+}

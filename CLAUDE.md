@@ -278,6 +278,49 @@ into `exports/` with the world folder as the entry prefix, so unpacking into
 `checked_name` and then insists on a `level.dat`, so neither a crafted name nor
 a stray folder can be handed to `remove_dir_all`.
 
+### Servers (`servers.rs`, `nbt.rs`)
+
+The game's own multiplayer list, `.minecraft/servers.dat`, edited in place —
+which is why `nbt.rs` exists at all.
+
+`nbt.rs` parses the whole tag tree and writes it back byte-for-byte, keeping
+compound entries in file order. That is not thoroughness for its own sake: the
+client writes keys this launcher has never heard of (`acceptTextures`, whatever
+a version adds next) and rebuilding the file from the fields we understand
+would drop them silently. Every read is bounds-checked and a declared length is
+refused when it runs past the file, because a corrupt `.dat` must be an error
+rather than a panic or a gigabyte allocation. `worlds.rs` still scans
+`level.dat` bytes for one string and is deliberately not moved onto this — it
+reads a gzipped file for a single field.
+
+**The list is not touched while the game runs.** The client rewrites
+`servers.dat` wholesale on exit, so anything added underneath it is lost; the
+UI disables editing exactly as it does for worlds. Writes go through a
+`.dat.part` rename, since a half-written file is a list the player loses.
+Removal sends the entry's address alongside its position — the file has no ids,
+two entries may share a name, and a stale index would delete a neighbour.
+
+`ping` speaks the status protocol directly (varints, handshake, one JSON
+reply); no client library is involved. Three things it has to get right:
+
+- **A bare host gets an SRV lookup, an explicit port never does.** Shared
+  hosting sells one hostname behind one IP on a scattered port, and
+  `_minecraft._tcp.<host>` is how the game finds it — without it a large slice
+  of small servers looks offline. A player who typed `:25565` meant that port,
+  so `split_address` reports whether the port was written down rather than
+  comparing against the default. `hickory-resolver` does the lookup; failure of
+  any kind falls back to the address as typed.
+- **The MOTD arrives in three shapes**: a plain string, a chat component with
+  `extra`, or either one full of `§` colour codes. It is flattened to text on
+  the way out, because the list renders none of that.
+- **The reply is attacker-controlled.** It is capped before it is read, and a
+  favicon only survives if it is already a `data:image/` URI — it goes straight
+  into an `<img>`.
+
+Pinging is one command per server so the UI shows each answer as it lands; a
+dead address costs the whole five second timeout and a list of ten pinged in
+turn would take a minute.
+
 ### Logs (`logs.rs`)
 
 Three directories hold something the user calls "the log", and `Source` is the
@@ -402,7 +445,10 @@ adding an action there is what makes it appear everywhere it belongs.
 Deliberately few. The frontend has three: `marked` and
 `dompurify` (paired, for Modrinth descriptions) and `jsdom` for their test.
 `zip`, `reqwest`, `tokio`, `serde` are already present — reach
-for those before adding anything. The frontend has no UI framework beyond
+for those before adding anything. `hickory-resolver` is the one crate here
+carrying real weight (18 transitive packages) for one job: SRV lookups need
+both DNS packets and the system's resolver configuration on three platforms,
+which is not a few lines. The frontend has no UI framework beyond
 Svelte 5 runes and no SvelteKit (a desktop app needs no router); tests use
 `node --test` rather than a test runner. The release profile is tuned for size
 (`opt-level = "z"`, LTO, `panic = "abort"`, strip); keep the binary small.

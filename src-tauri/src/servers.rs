@@ -10,7 +10,8 @@
 //!   survive an edit.
 //! - `ping` speaks the server-list protocol over TCP: a handshake, a status
 //!   request, and a JSON reply with the MOTD, the player count and an icon.
-//!   It is the same exchange the game's own multiplayer screen makes.
+//!   It is the same exchange the game's own multiplayer screen makes, SRV
+//!   lookup included, because that is how most small servers are published.
 //!
 //! Never touched while the game is running: the client rewrites `servers.dat`
 //! wholesale on exit and would drop anything added underneath it, so the UI
@@ -191,21 +192,27 @@ pub async fn remove(id: &str, index: usize, ip: &str) -> Result<()> {
 
 /// Split `host:port`, defaulting the port. IPv6 in brackets is handled because
 /// `servers.dat` stores whatever the player typed.
-fn split_address(address: &str) -> (String, u16) {
+///
+/// The third value says whether the port was written down. It decides the SRV
+/// lookup: a player who typed a port meant that port, and `:25565` typed out
+/// is not the same as leaving it off.
+fn split_address(address: &str) -> (String, u16, bool) {
     let address = address.trim();
     if let Some(rest) = address.strip_prefix('[') {
         if let Some((host, tail)) = rest.split_once(']') {
-            let port = tail.strip_prefix(':').and_then(|p| p.parse().ok()).unwrap_or(PORT);
-            return (host.to_string(), port);
+            return match tail.strip_prefix(':').and_then(|p| p.parse().ok()) {
+                Some(port) => (host.to_string(), port, true),
+                None => (host.to_string(), PORT, false),
+            };
         }
     }
     match address.rsplit_once(':') {
         // A bare IPv6 address has colons but no port.
         Some((host, port)) if !host.contains(':') => match port.parse() {
-            Ok(port) => (host.to_string(), port),
-            Err(_) => (address.to_string(), PORT),
+            Ok(port) => (host.to_string(), port, true),
+            Err(_) => (address.to_string(), PORT, false),
         },
-        _ => (address.to_string(), PORT),
+        _ => (address.to_string(), PORT, false),
     }
 }
 
@@ -279,20 +286,44 @@ fn strip_codes(text: &str) -> String {
     out.trim().to_string()
 }
 
+/// Where a bare host actually points, when it publishes a `_minecraft._tcp`
+/// SRV record. Shared hosting sells one hostname per server behind one IP on
+/// scattered ports, and this record is how the game finds the port — without
+/// it a large slice of small servers simply looks offline.
+///
+/// Best effort by design: no record, no resolver configuration, a DNS server
+/// that will not answer — all mean "use the address as typed".
+async fn resolve_srv(host: &str) -> Option<(String, u16)> {
+    // An address that is already an IP has nothing to look up.
+    if host.parse::<std::net::IpAddr>().is_ok() {
+        return None;
+    }
+    let resolver = hickory_resolver::Resolver::builder_tokio().ok()?.build();
+    let lookup = resolver.srv_lookup(format!("_minecraft._tcp.{host}.")).await.ok()?;
+    // The record set is priority/weight ordered by the library; the first is
+    // the one to use, and a target of "." means "no service here".
+    let record = lookup.iter().find(|r| !r.target().is_root())?;
+    Some((record.target().to_utf8().trim_end_matches('.').to_string(), record.port()))
+}
+
 /// Ask a server for its status.
 ///
-/// ponytail: no SRV lookup, so a server published only as `_minecraft._tcp`
-/// with no A record on the bare host cannot be reached here. Doing it without
-/// a resolver crate means writing DNS packets *and* finding the system's
-/// resolver on every platform; add `hickory-resolver` when it matters.
+/// An explicit port is the player's own choice and is never second-guessed;
+/// only a bare host goes through an SRV lookup first.
 pub async fn ping(address: String) -> Result<Status> {
-    let (host, port) = split_address(&address);
+    let (host, port, explicit_port) = split_address(&address);
     if host.is_empty() {
         return Err(Error::msg("That server has no address."));
     }
-    tokio::time::timeout(TIMEOUT, status(host, port))
-        .await
-        .map_err(|_| Error::msg("The server did not answer in time."))?
+    tokio::time::timeout(TIMEOUT, async move {
+        let (host, port) = match explicit_port {
+            true => (host, port),
+            false => resolve_srv(&host).await.unwrap_or((host, port)),
+        };
+        status(host, port).await
+    })
+    .await
+    .map_err(|_| Error::msg("The server did not answer in time."))?
 }
 
 async fn status(host: String, port: u16) -> Result<Status> {
@@ -346,14 +377,27 @@ mod tests {
 
     #[test]
     fn an_address_keeps_its_port_or_gets_the_default() {
-        assert_eq!(split_address("mc.hypixel.net"), ("mc.hypixel.net".into(), 25565));
-        assert_eq!(split_address(" play.example.com:25566 "), ("play.example.com".into(), 25566));
-        assert_eq!(split_address("[::1]:25570"), ("::1".into(), 25570));
-        assert_eq!(split_address("[::1]"), ("::1".into(), 25565));
+        assert_eq!(split_address("mc.hypixel.net"), ("mc.hypixel.net".into(), 25565, false));
+        assert_eq!(
+            split_address(" play.example.com:25566 "),
+            ("play.example.com".into(), 25566, true)
+        );
+        assert_eq!(split_address("[::1]:25570"), ("::1".into(), 25570, true));
+        assert_eq!(split_address("[::1]"), ("::1".into(), 25565, false));
         // A bare IPv6 address is all colons and no port.
-        assert_eq!(split_address("fe80::1"), ("fe80::1".into(), 25565));
+        assert_eq!(split_address("fe80::1"), ("fe80::1".into(), 25565, false));
         // A port that is not a number is part of the host, not a panic.
-        assert_eq!(split_address("example.com:lots"), ("example.com:lots".into(), 25565));
+        assert_eq!(split_address("example.com:lots"), ("example.com:lots".into(), 25565, false));
+        // Typed out, the default port is still the player's choice, and skips
+        // the SRV lookup that would otherwise override it.
+        assert_eq!(split_address("example.com:25565"), ("example.com".into(), 25565, true));
+    }
+
+    #[tokio::test]
+    async fn an_address_that_is_already_an_ip_is_not_looked_up() {
+        // No DNS traffic, so this stays an offline test.
+        assert_eq!(resolve_srv("127.0.0.1").await, None);
+        assert_eq!(resolve_srv("::1").await, None);
     }
 
     #[test]
