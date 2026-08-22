@@ -19,6 +19,7 @@
   import InstancePanel from "./lib/InstancePanel.svelte";
   import InstanceSettings from "./lib/InstanceSettings.svelte";
   import InstanceTile from "./lib/InstanceTile.svelte";
+  import ExportDialog from "./lib/ExportDialog.svelte";
   import LogView from "./lib/LogView.svelte";
   import Mods from "./lib/Mods.svelte";
   import Modal from "./lib/Modal.svelte";
@@ -73,6 +74,7 @@
   let dragging = $state(false);
   let menu = $state<{ x: number; y: number; items: MenuItem[] } | null>(null);
   let deleting = $state<Instance | null>(null);
+  let exporting = $state<Instance | null>(null);
 
   const visible = $derived(
     instances.filter((i) =>
@@ -313,7 +315,7 @@
             await refreshInstances();
           },
         },
-        { label: "Export", icon: "export", action: () => actions.exportInstance(instance) },
+        { label: "Export", icon: "export", action: () => (exporting = instance) },
         {
           label: "Delete",
           icon: "trash",
@@ -477,6 +479,7 @@
         onmods={openContent}
         onworlds={(i) => (managingWorlds = i)}
         onscreenshots={(i) => (viewingShots = i)}
+        onexport={(i) => (exporting = i)}
         onchanged={refreshInstances}
       />
     {/if}
@@ -564,9 +567,18 @@
   <Accounts {accounts} onclose={() => (showAccounts = false)} onchange={refreshAccounts} />
 {/if}
 
-{#if editing}
-  <InstanceSettings instance={editing} onclose={() => (editing = null)} onsaved={refreshInstances} />
-{/if}
+  {#if editing}
+    <InstanceSettings
+      instance={editing}
+      onclose={() => (editing = null)}
+      onsaved={refreshInstances}
+      onexport={(i: Instance) => (exporting = i)}
+    />
+  {/if}
+
+  {#if exporting}
+    <ExportDialog instance={exporting} onclose={() => (exporting = null)} />
+  {/if}
 
 {#if dragging}
   <div class="dropzone">

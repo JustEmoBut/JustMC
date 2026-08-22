@@ -17,16 +17,6 @@ export async function openModsFolder(instance: Instance, kind: ModKind = "mods")
   }
 }
 
-export async function exportInstance(instance: Instance) {
-  try {
-    await api.exportInstance(instance.id);
-    notify(`Exported ${instance.name}.`);
-    await api.openExportsFolder();
-  } catch (e) {
-    notify(errorMessage(e), "error");
-  }
-}
-
 export async function duplicateInstance(instance: Instance) {
   try {
     const copy = await api.duplicateInstance(instance.id, `${instance.name} (copy)`);

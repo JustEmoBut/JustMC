@@ -4,6 +4,7 @@
 
 use justlauncher_lib::instance::{self, Instance, Loader};
 use justlauncher_lib::pack;
+use std::io::Read;
 use std::path::PathBuf;
 
 /// Point the launcher at a private data directory for this test binary.
@@ -154,8 +155,7 @@ async fn a_pinned_loader_build_survives_creation_unless_there_is_no_loader() {
     assert!(vanilla.loader_version.is_empty(), "vanilla has no loader to pin");
 }
 
-/// The world list, a backup and a delete, against a real instance on disk.
-#[tokio::test]
+/// The world list, a backup and a delete, against a real instance on disk.#[tokio::test]
 async fn worlds_are_listed_backed_up_and_deleted() {
     scratch_home();
     let instance = sample();
@@ -238,4 +238,55 @@ async fn unpacked_pack_folders_are_listed_and_deleted() {
     mods::delete(&instance.id, Kind::Resourcepacks, &disabled).await.unwrap();
     assert!(!packs.join("Faithful.disabled").exists());
     assert!(packs.join("old backup").exists(), "an unlisted folder is untouched");
+}
+
+/// A `.mrpack` export: the index describes the pack, everything else rides in
+/// `overrides/`, and the player's own files stay home.
+///
+/// The instance deliberately holds no top-level content files, so the Modrinth
+/// lookup is empty and the test stays offline.
+#[tokio::test]
+async fn an_mrpack_export_separates_the_pack_from_the_player() {
+    use justlauncher_lib::mrpack;
+
+    scratch_home();
+    let original = sample();
+    original.save().await.unwrap();
+
+    let game = original.game_dir();
+    std::fs::create_dir_all(game.join("config")).unwrap();
+    std::fs::write(game.join("config/sodium.toml"), b"enabled=true").unwrap();
+    // An unpacked shader folder is pack content, but not index material.
+    std::fs::create_dir_all(game.join("shaderpacks/BSL/shaders")).unwrap();
+    std::fs::write(game.join("shaderpacks/BSL/shaders/final.fsh"), b"shader").unwrap();
+    // The player's own: a world, their keybinds, their server list.
+    std::fs::create_dir_all(game.join("saves/New World")).unwrap();
+    std::fs::write(game.join("saves/New World/level.dat"), b"world data").unwrap();
+    std::fs::write(game.join("options.txt"), b"fov:90").unwrap();
+    std::fs::write(game.join("servers.dat"), b"servers").unwrap();
+
+    let archive = mrpack::export(&original).await.unwrap();
+    assert!(archive.to_string_lossy().ends_with("source.mrpack"), "{}", archive.display());
+
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(&archive).unwrap()).unwrap();
+    let names: Vec<String> = (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().to_owned()).collect();
+
+    assert!(names.contains(&"modrinth.index.json".to_string()), "{names:?}");
+    assert!(names.contains(&"overrides/config/sodium.toml".to_string()), "{names:?}");
+    assert!(names.contains(&"overrides/shaderpacks/BSL/shaders/final.fsh".to_string()), "{names:?}");
+    assert!(!names.iter().any(|n| n.contains("saves") || n.contains("options.txt") || n.contains("servers.dat")), "{names:?}");
+
+    // The index is what every other launcher reads first; its shape is the
+    // contract, so assert it rather than trust the writer's types.
+    let mut text = String::new();
+    zip.by_name("modrinth.index.json").unwrap().read_to_string(&mut text).unwrap();
+    let index: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(index["formatVersion"], 1);
+    assert_eq!(index["game"], "minecraft");
+    assert_eq!(index["name"], "My Pack");
+    assert_eq!(index["dependencies"]["minecraft"], "1.20.1");
+    assert_eq!(index["dependencies"]["fabric-loader"], "0.16.0");
+    assert_eq!(index["files"].as_array().unwrap().len(), 0, "nothing to resolve offline");
+
+    let _ = std::fs::remove_dir_all(std::env::var("JUSTLAUNCHER_HOME").unwrap());
 }

@@ -147,7 +147,7 @@ async fn fabric_reports_no_loaders_for_an_unsupported_version() {
 async fn modrinth_finds_a_fabric_mod_and_its_jar() {
     use justlauncher_lib::modrinth;
 
-    let page = modrinth::search("sodium", "1.21.1", "relevance", None, 0, 5, "mod", &["fabric"])
+    let page = modrinth::search("sodium", Some("1.21.1"), "relevance", None, 0, 5, "mod", &["fabric"])
         .await
         .unwrap();
     assert!(!page.hits.is_empty(), "sodium should be findable for 1.21.1");
@@ -177,7 +177,7 @@ async fn modrinth_search_sort_and_update_check() {
 
     let page = modrinth::search(
         "",
-        "1.21.1",
+        Some("1.21.1"),
         "downloads",
         Some("optimization"),
         0,
@@ -254,7 +254,7 @@ async fn modrinth_serves_resource_packs_and_shaders() {
     use justlauncher_lib::modrinth;
 
     for kind in [Kind::Resourcepacks, Kind::Shaderpacks] {
-        let page = modrinth::search("", "1.21.1", "downloads", None, 0, 5, kind.project_type(), &[])
+        let page = modrinth::search("", Some("1.21.1"), "downloads", None, 0, 5, kind.project_type(), &[])
             .await
             .unwrap();
         assert!(!page.hits.is_empty(), "no {} for 1.21.1", kind.project_type());

@@ -22,8 +22,9 @@ Chromium is bundled.
 - Fabric and Quilt loaders, with the loader build pinnable when an instance is
   created and afterwards
 - Create, configure, delete instances; per-instance memory, Java and JVM args
-- Parallel downloading with SHA-1 verification, resumable across runs, live
-  transfer rate and ETA
+- Parallel downloading with SHA-1 verification, resumable across runs,
+  retried with backoff on a blip or a rate limit, with live transfer rate
+  and ETA
 - Shared library/asset store, so instances on the same version cost no extra disk
 - Every asset layout Minecraft has used, including the named-file trees that
   1.7.2 and older need
@@ -35,8 +36,13 @@ Chromium is bundled.
   sort by relevance, downloads, followers or date, filter by category, hide what
   is already installed, read a project and install any version of it, with its
   required dependencies
-- Export an instance to a zip; import one, or a Modrinth `.mrpack` modpack,
-  from Add Instance or by dropping it on the window
+- Browse Modrinth's modpacks from the Add Instance dialog and install any build
+  of one; a Forge or NeoForge pack says so rather than failing later
+- Export an instance as a Modrinth `.mrpack` any launcher can install — jars
+  Modrinth can serve become downloads, the rest overrides, and the player's
+  own worlds, screenshots, keybinds and server list stay out
+- Export an instance to a zip; import one, or a `.mrpack`, from Add Instance
+  or by dropping it on the window
 - Duplicate an instance with its worlds and configs; change an existing
   instance's Minecraft version
 - Java detection matched to each version's required major, and automatic
@@ -52,8 +58,9 @@ Chromium is bundled.
 
 ## Not included
 
-CurseForge, world creation and renaming, custom themes, Forge/NeoForge, skin
-management.
+CurseForge, world creation and renaming, custom themes. Planned work —
+Forge, NeoForge, skin management and more — lives in the
+[roadmap](ROADMAP.md).
 
 CurseForge is absent for a reason rather than an oversight: its API needs a
 per-launcher key that cannot be shipped in an open source build, and it lets
@@ -101,7 +108,7 @@ src-tauri/src/
   loader.rs         Fabric and Quilt loader metadata
   settings.rs       launcher-wide preferences and new-instance defaults
   pack.rs           instance export/import archives, duplication
-  mrpack.rs         Modrinth modpack (.mrpack) import
+  mrpack.rs         Modrinth modpack (.mrpack) import and export
   mods.rs           mods, resourcepacks, shaderpacks: list, enable, delete
   modrinth.rs       Modrinth search and jar resolution
   worlds.rs         world listing, backup and delete

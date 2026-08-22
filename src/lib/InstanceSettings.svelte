@@ -17,10 +17,12 @@
     instance,
     onclose,
     onsaved,
+    onexport,
   }: {
     instance: Instance;
     onclose: () => void;
     onsaved: () => Promise<void>;
+    onexport: (instance: Instance) => void;
   } = $props();
 
   // Edit a copy so cancelling leaves the list untouched. The snapshot is taken
@@ -35,20 +37,6 @@
   // own version is visible in the list without a click.
   let showSnapshots = $state(untrack(() => !/^\d+\.\d+(\.\d+)?$/.test(instance.mc_version)));
   let confirmingDelete = $state(false);
-  let exporting = $state(false);
-
-  async function exportInstance() {
-    exporting = true;
-    try {
-      await api.exportInstance(instance.id);
-      notify(`Exported ${instance.name}. Opening the exports folder…`);
-      await api.openExportsFolder();
-    } catch (e) {
-      notify(errorMessage(e), "error");
-    } finally {
-      exporting = false;
-    }
-  }
 
   const memoryMax = $derived(Math.min(16384, ramMb ?? 16384));
   const changedVersion = $derived(draft.mc_version !== instance.mc_version);
@@ -219,9 +207,7 @@
       <button class="danger" onclick={remove}>Delete</button>
     {:else}
       <button class="danger" onclick={() => (confirmingDelete = true)}>Delete</button>
-      <button onclick={exportInstance} disabled={exporting}>
-        {exporting ? "Exporting…" : "Export"}
-      </button>
+      <button onclick={() => onexport(instance)}>Export</button>
       <span class="spacer"></span>
       <button onclick={onclose}>Cancel</button>
       <button class="primary" onclick={save} disabled={loaderUnsupported}>Save</button>

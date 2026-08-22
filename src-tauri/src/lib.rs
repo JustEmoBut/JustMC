@@ -286,7 +286,7 @@ async fn search_mods(
     let loaders: &[&str] = if kind == mods::Kind::Mods { loader.mod_loaders() } else { &[] };
     modrinth::search(
         &query,
-        &mc_version,
+        Some(&mc_version),
         &sort,
         category.as_deref(),
         offset,
@@ -295,6 +295,69 @@ async fn search_mods(
         loaders,
     )
     .await
+}
+
+/// Search Modrinth's modpack catalogue. A pack brings its own Minecraft
+/// version and loader, so there is nothing to narrow by here — the choice the
+/// user is in the middle of making is the thing being browsed for.
+#[tauri::command]
+async fn search_modpacks(
+    query: String,
+    sort: String,
+    category: Option<String>,
+    offset: u32,
+) -> Result<modrinth::SearchPage> {
+    modrinth::search(&query, None, &sort, category.as_deref(), offset, 20, "modpack", &[]).await
+}
+
+/// Install a Modrinth pack into a fresh instance: fetch the chosen build's
+/// `.mrpack` and hand it to the ordinary importer, which owns the whole
+/// loaders-and-downloads pipeline.
+#[tauri::command]
+async fn install_modpack(
+    app: tauri::AppHandle,
+    project: String,
+    version_id: Option<String>,
+) -> Result<Instance> {
+    let version = match version_id {
+        Some(id) => modrinth::version(&id).await?,
+        None => {
+            // Packs are not narrowed by Minecraft version, so "latest" is
+            // simply the newest release of the project, whatever it targets.
+            let all = modrinth::all_versions(&project).await?;
+            all.iter()
+                .find(|v| v.version_type == "release")
+                .or_else(|| all.first())
+                .cloned()
+                .ok_or_else(|| Error::msg("This pack has no releases."))?
+        }
+    };
+
+    let file = version.jar().ok_or_else(|| Error::msg("That pack build has no file."))?;
+    let archive = std::env::temp_dir().join(format!("justlauncher-{}.mrpack", version.id));
+    download::run(
+        &app,
+        "Pack",
+        vec![download::Job {
+            url: file.url.clone(),
+            path: archive.clone(),
+            sha1: file.hashes.sha1.clone(),
+            size: Some(file.size),
+        }],
+    )
+    .await?;
+    let result = mrpack::import(&app, &archive).await;
+    let _ = tokio::fs::remove_file(&archive).await;
+    result
+}
+
+/// Export an instance in Modrinth's own pack format, so any launcher that
+/// speaks it — including this one — can install it back.
+#[tauri::command]
+async fn export_instance_mrpack(id: String) -> Result<String> {
+    let inst = instance::get(&id).await?;
+    let path = mrpack::export(&inst).await?;
+    Ok(path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -310,6 +373,13 @@ async fn mod_versions(
     loader: Loader,
 ) -> Result<Vec<modrinth::Version>> {
     modrinth::versions(&project, &mc_version, kind.loaders(loader)).await
+}
+
+/// Every build of a pack, unfiltered: each one names its own Minecraft
+/// version, so the browser's version picker must not narrow by one.
+#[tauri::command]
+async fn pack_versions(project: String) -> Result<Vec<modrinth::Version>> {
+    modrinth::all_versions(&project).await
 }
 
 /// Install a Modrinth project into an instance, with the required dependencies
@@ -541,6 +611,10 @@ pub fn run() {
             set_mod_enabled,
             delete_mod,
             search_mods,
+            search_modpacks,
+            install_modpack,
+            export_instance_mrpack,
+            pack_versions,
             mod_project,
             mod_versions,
             install_mod,

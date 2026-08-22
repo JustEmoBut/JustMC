@@ -12,6 +12,7 @@
     onmods,
     onworlds,
     onscreenshots,
+    onexport,
     onchanged,
   }: {
     instance: Instance;
@@ -22,10 +23,10 @@
     onmods: (instance: Instance) => void;
     onworlds: (instance: Instance) => void;
     onscreenshots: (instance: Instance) => void;
+    onexport: (instance: Instance) => void;
     onchanged: () => Promise<void>;
   } = $props();
 
-  let exporting = $state(false);
   let duplicating = $state(false);
   let confirmingDelete = $state(false);
 
@@ -37,12 +38,6 @@
     status;
     confirmingDelete = false;
   });
-
-  async function exportInstance() {
-    exporting = true;
-    await actions.exportInstance(instance);
-    exporting = false;
-  }
 
   async function duplicate() {
     duplicating = true;
@@ -132,9 +127,9 @@
       <Icon name="copy" />
       {duplicating ? "Copying…" : "Duplicate"}
     </button>
-    <button onclick={exportInstance} disabled={exporting}>
+    <button onclick={() => onexport(instance)}>
       <Icon name="export" />
-      {exporting ? "Exporting…" : "Export"}
+      Export
     </button>
 
     {#if confirmingDelete}

@@ -251,6 +251,17 @@ export const api = {
   /** Installs the file plus, for mods, its required dependencies; returns every file added. */
   installMod: (id: string, kind: ModKind, project: string, versionId: string | null) =>
     invoke<string[]>("install_mod", { id, kind, project, versionId }),
+
+  /** Search Modrinth's modpack catalogue; a pack brings its own version and loader. */
+  searchModpacks: (query: string, sort: string, category: string | null, offset: number) =>
+    invoke<ModSearchPage>("search_modpacks", { query, sort, category, offset }),
+  /** Every build of a pack, unfiltered by Minecraft version. */
+  packVersions: (project: string) => invoke<ModVersion[]>("pack_versions", { project }),
+  /** Downloads the pack's `.mrpack` and imports it as a new instance. */
+  installModpack: (project: string, versionId: string | null) =>
+    invoke<Instance>("install_modpack", { project, versionId }),
+  /** Exports in Modrinth's `.mrpack` format; returns the archive path. */
+  exportMrpack: (id: string) => invoke<string>("export_instance_mrpack", { id }),
   /** Opens an http(s) link in the user's browser; other schemes are refused. */
   openUrl: (url: string) => invoke<void>("open_url", { url }),
   addModFile: (id: string, kind: ModKind, path: string) =>

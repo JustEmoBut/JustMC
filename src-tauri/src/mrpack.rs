@@ -1,9 +1,10 @@
-//! Importing a Modrinth modpack (`.mrpack`).
+//! Importing a Modrinth modpack (`.mrpack`) and exporting one back.
 //!
 //! The archive is a zip holding `modrinth.index.json` — a list of files to
 //! fetch, with hashes — plus `overrides/` folders of configs the pack ships
 //! itself. Nothing is bundled that Modrinth can serve, which is why importing
-//! one is mostly downloading.
+//! one is mostly downloading, and why exporting walks the game folder asking
+//! which jars Modrinth knows and ships only the rest as overrides.
 //!
 //! Only the loaders the launcher can install are accepted; a Forge or NeoForge
 //! pack is rejected here rather than failing at launch with an unreadable Java
@@ -12,8 +13,9 @@
 use crate::download::{self, Job};
 use crate::error::{Error, Result};
 use crate::instance::{self, Instance, Loader};
-use serde::Deserialize;
-use std::collections::HashMap;
+use crate::paths;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
@@ -151,6 +153,231 @@ async fn fill(app: &AppHandle, inst: &Instance, index: Index, archive: &Path) ->
         .map_err(|e| Error::msg(e.to_string()))??;
 
     download::run(app, "Pack files", jobs).await
+}
+
+// --------------------------------------------------------------------- export
+
+/// The mirror of the import index: what a pack publisher writes, not reads.
+#[derive(Serialize)]
+struct OutIndex {
+    #[serde(rename = "formatVersion")]
+    format_version: u8,
+    game: &'static str,
+    #[serde(rename = "versionId")]
+    version_id: String,
+    name: String,
+    files: Vec<OutFile>,
+    /// BTreeMap so the output is byte-stable; the format does not care.
+    dependencies: BTreeMap<String, String>,
+}
+
+#[derive(Serialize)]
+struct OutFile {
+    path: String,
+    hashes: OutHashes,
+    downloads: Vec<String>,
+    #[serde(rename = "fileSize")]
+    file_size: u64,
+}
+
+/// The format requires both digests of every file it lists, so both are
+/// computed even though the launcher itself only ever verifies the SHA-1.
+#[derive(Serialize)]
+struct OutHashes {
+    sha1: String,
+    sha512: String,
+}
+
+/// A content file that has been hashed, ready to be resolved against Modrinth.
+struct Hashed {
+    path: PathBuf,
+    rel: String,
+    sha1: String,
+    sha512: String,
+    size: u64,
+}
+
+/// Folders and files in the game directory that are the player's own rather
+/// than the pack's. A pack shares a setup; it does not share someone's worlds,
+/// screenshots, keybinds or server list. `logs` and `natives` go for the same
+/// reason the zip export drops them: one holds the session token, the other is
+/// rebuilt on every launch.
+fn is_own(relative: &str) -> bool {
+    let first = relative.split('/').next().unwrap_or(relative);
+    matches!(
+        first,
+        "saves" | "screenshots" | "logs" | "crash-reports" | "debug" | "natives" | ".fabric" | "webcache"
+    ) || matches!(relative, "options.txt" | "servers.dat" | "usercache.json" | "usernamecache.json")
+        || relative.ends_with(".part")
+}
+
+/// A candidate for Modrinth resolution: a file directly inside one of the
+/// three content folders, which are the only trees the format knows how to
+/// describe. Anything deeper, or anywhere else in the game folder, rides in
+/// `overrides/` as-is.
+fn is_content_file(relative: &str) -> bool {
+    match relative.split_once('/') {
+        Some(("mods" | "resourcepacks" | "shaderpacks", name)) => {
+            !name.is_empty() && !name.contains('/')
+        }
+        _ => false,
+    }
+}
+
+/// Split hashed content files into index entries for the ones Modrinth can
+/// serve and overrides for the ones it cannot — a jar built by hand, or
+/// downloaded from somewhere Modrinth has no file for. The on-disk path is
+/// kept rather than Modrinth's own file name, so a renamed jar still lands
+/// where the instance expects it.
+fn split_known(
+    hashed: Vec<Hashed>,
+    known: &HashMap<String, crate::modrinth::Version>,
+) -> (Vec<OutFile>, Vec<(PathBuf, String)>) {
+    let mut files = Vec::new();
+    let mut overrides = Vec::new();
+    for h in hashed {
+        let url = known.get(&h.sha1).and_then(|version| {
+            version
+                .files
+                .iter()
+                .find(|f| f.hashes.sha1.as_deref().is_some_and(|s| s.eq_ignore_ascii_case(&h.sha1)))
+                .or_else(|| version.jar())
+                .map(|f| f.url.clone())
+        });
+        match url {
+            Some(url) => files.push(OutFile {
+                path: h.rel,
+                hashes: OutHashes { sha1: h.sha1.clone(), sha512: h.sha512 },
+                downloads: vec![url],
+                file_size: h.size,
+            }),
+            None => overrides.push((h.path, h.rel)),
+        }
+    }
+    (files, overrides)
+}
+
+/// Write the instance to `exports/<id>.mrpack`, returning the archive path.
+///
+/// Every jar Modrinth recognises by hash becomes a download entry pointing at
+/// its own CDN; everything else in the game folder becomes an override. The
+/// result re-imports here and in every other launcher that speaks the format.
+pub async fn export(inst: &Instance) -> Result<PathBuf> {
+    // The loader build is part of the pack's identity; without it the index
+    // would silently describe a vanilla pack.
+    if inst.loader != Loader::Vanilla && inst.loader_version.is_empty() {
+        return Err(Error::msg(
+            "The loader build is not resolved yet. Install the instance once, then export.",
+        ));
+    }
+
+    let game_dir = inst.game_dir();
+
+    // Walking and hashing a heavily modded folder is blocking IO.
+    let (hashed, mut overrides) = tokio::task::spawn_blocking({
+        let dir = game_dir.clone();
+        move || collect_exportable(&dir)
+    })
+    .await
+    .map_err(|e| Error::msg(e.to_string()))??;
+
+    // Best effort on purpose: with the network down, or for jars Modrinth has
+    // never seen, everything still ships — as overrides rather than entries.
+    let lookup: Vec<String> = hashed.iter().map(|h| h.sha1.clone()).collect();
+    let known = crate::modrinth::version_files(&lookup).await.unwrap_or_default();
+    let (files, unresolved) = split_known(hashed, &known);
+    overrides.extend(unresolved);
+
+    let mut dependencies = BTreeMap::new();
+    dependencies.insert("minecraft".to_string(), inst.mc_version.clone());
+    let loader_key = match inst.loader {
+        Loader::Vanilla => None,
+        Loader::Fabric => Some("fabric-loader"),
+        Loader::Quilt => Some("quilt-loader"),
+    };
+    if let Some(key) = loader_key {
+        dependencies.insert(key.to_string(), inst.loader_version.clone());
+    }
+
+    let index = OutIndex {
+        format_version: 1,
+        game: "minecraft",
+        // A free-form string; a timestamp is honest about what it is, unlike a
+        // fake semantic version.
+        version_id: instance::now_secs().to_string(),
+        name: inst.name.clone(),
+        files,
+        dependencies,
+    };
+    let index_bytes = serde_json::to_vec_pretty(&index)?;
+
+    let dest = paths::exports().join(format!("{}.mrpack", inst.id));
+    std::fs::create_dir_all(paths::exports())?;
+    let write = dest.clone();
+    tokio::task::spawn_blocking(move || write_mrpack(&write, &index_bytes, &overrides))
+        .await
+        .map_err(|e| Error::msg(e.to_string()))??;
+    Ok(dest)
+}
+
+/// Walk the game folder, splitting it into hashed content candidates and
+/// everything-else overrides, with the player's own files left out entirely.
+fn collect_exportable(root: &Path) -> Result<(Vec<Hashed>, Vec<(PathBuf, String)>)> {
+    let mut hashed = Vec::new();
+    let mut overrides = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir)? {
+            let path = entry?.path();
+            let relative = path
+                .strip_prefix(root)
+                .map_err(|_| Error::msg("path escaped the game directory"))?
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "/");
+
+            if is_own(&relative) {
+                continue;
+            }
+            if path.is_dir() {
+                stack.push(path);
+            } else if is_content_file(&relative) {
+                let bytes = std::fs::read(&path)?;
+                use sha1::Digest;
+                let mut one = sha1::Sha1::new();
+                one.update(&bytes);
+                let mut many = sha2::Sha512::new();
+                many.update(&bytes);
+                hashed.push(Hashed {
+                    sha1: hex::encode(one.finalize()),
+                    sha512: hex::encode(many.finalize()),
+                    path,
+                    rel: relative,
+                    size: bytes.len() as u64,
+                });
+            } else {
+                overrides.push((path, relative));
+            }
+        }
+    }
+    Ok((hashed, overrides))
+}
+
+fn write_mrpack(dest: &Path, index: &[u8], overrides: &[(PathBuf, String)]) -> Result<()> {
+    use std::io::Write;
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(dest)?);
+
+    zip.start_file(INDEX_NAME, options)?;
+    zip.write_all(index)?;
+    for (path, relative) in overrides {
+        zip.start_file(format!("overrides/{relative}"), options)?;
+        let mut file = std::fs::File::open(path)?;
+        std::io::copy(&mut file, &mut zip)?;
+    }
+    zip.finish()?;
+    Ok(())
 }
 
 /// Read `modrinth.index.json` out of the archive.
@@ -315,5 +542,131 @@ mod tests {
         assert!(!file(Some("unsupported")).wanted());
         // No env block at all means the file is simply for everyone.
         assert!(file(None).wanted());
+    }
+
+    #[test]
+    fn personal_files_stay_home() {
+        for own in [
+            "saves/New World/level.dat",
+            "screenshots/2026-08-19_12.00.png",
+            "logs/latest.log",
+            "crash-reports/crash-2026.txt",
+            "natives/lwjgl.dll",
+            "options.txt",
+            "servers.dat",
+            "usercache.json",
+            "mods/sodium.jar.part",
+        ] {
+            assert!(is_own(own), "{own} is the player's, not the pack's");
+        }
+        for packs in ["config/sodium.toml", "mods/sodium.jar", "shaderpacks/BSL/shaders/final.fsh"] {
+            assert!(!is_own(packs), "{packs} belongs in the export");
+        }
+    }
+
+    #[test]
+    fn only_the_three_content_folders_feed_the_index() {
+        for candidate in ["mods/sodium.jar", "resourcepacks/Faithful.zip", "shaderpacks/BSL.zip"] {
+            assert!(is_content_file(candidate), "{candidate}");
+        }
+        // Nested, unpacked or elsewhere: not index material, override material.
+        for plain in [
+            "mods/unpacked/dir",
+            "config/fabric-api.toml",
+            "saves/x/level.dat",
+            "shaderpacks/BSL/shaders/final.fsh",
+        ] {
+            assert!(!is_content_file(plain), "{plain}");
+        }
+    }
+
+    /// The version Modrinth would answer for a known hash, in the shape the
+    /// split has to read.
+    fn version_for(sha1: &str, url: &str) -> crate::modrinth::Version {
+        crate::modrinth::Version {
+            id: "v1".into(),
+            project_id: "sodium".into(),
+            name: "Sodium 0.6".into(),
+            version_number: "0.6.0".into(),
+            version_type: "release".into(),
+            date_published: String::new(),
+            downloads: 0,
+            changelog: None,
+            dependencies: vec![],
+            files: vec![crate::modrinth::VersionFile {
+                url: url.into(),
+                filename: "sodium.jar".into(),
+                hashes: crate::modrinth::Hashes { sha1: Some(sha1.into()) },
+                size: 100,
+                primary: true,
+            }],
+        }
+    }
+
+    fn hashed(rel: &str, sha1: &str) -> Hashed {
+        Hashed {
+            path: PathBuf::from(rel),
+            rel: rel.into(),
+            sha1: sha1.into(),
+            sha512: String::new(),
+            size: 42,
+        }
+    }
+
+    #[test]
+    fn known_jars_become_entries_and_unknown_become_overrides() {
+        let known =
+            HashMap::from([("a".to_string(), version_for("a", "https://cdn.modrinth.com/a.jar"))]);
+        let (files, overrides) =
+            split_known(vec![hashed("mods/known.jar", "a"), hashed("mods/handmade.jar", "b")], &known);
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "mods/known.jar");
+        assert_eq!(files[0].downloads, ["https://cdn.modrinth.com/a.jar"]);
+        assert_eq!(files[0].file_size, 42);
+
+        // The jar Modrinth has never seen ships in the archive itself.
+        assert_eq!(overrides.len(), 1);
+        assert_eq!(overrides[0].1, "mods/handmade.jar");
+    }
+
+    #[test]
+    fn an_exported_index_has_every_field_the_format_requires() {
+        let index = OutIndex {
+            format_version: 1,
+            game: "minecraft",
+            version_id: "1755859200".into(),
+            name: "My Pack".into(),
+            files: vec![OutFile {
+                path: "mods/sodium.jar".into(),
+                hashes: OutHashes {
+                    sha1: "a".into(),
+                    sha512: "b".into(),
+                },
+                downloads: vec!["https://cdn.modrinth.com/a.jar".into()],
+                file_size: 42,
+            }],
+            dependencies: BTreeMap::from([
+                ("minecraft".to_string(), "1.21.1".to_string()),
+                ("fabric-loader".to_string(), "0.16.0".to_string()),
+            ]),
+        };
+        let json = serde_json::to_value(&index).unwrap();
+        assert_eq!(json["formatVersion"], 1);
+        assert_eq!(json["game"], "minecraft");
+        assert_eq!(json["files"][0]["hashes"]["sha1"], "a");
+        assert_eq!(json["files"][0]["hashes"]["sha512"], "b");
+        assert_eq!(json["files"][0]["fileSize"], 42);
+        assert_eq!(json["dependencies"]["fabric-loader"], "0.16.0");
+
+        // What the exporter writes must be what the importer reads.
+        let text = serde_json::to_string(&index).unwrap();
+        let back: Index = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.name, "My Pack");
+        assert_eq!(back.files[0].path, "mods/sodium.jar");
+        assert_eq!(
+            back.dependencies.get("fabric-loader").map(String::as_str),
+            Some("0.16.0")
+        );
     }
 }

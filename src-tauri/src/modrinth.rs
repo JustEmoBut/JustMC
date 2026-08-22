@@ -106,12 +106,14 @@ impl Version {
 ///
 /// `sort` is Modrinth's search index: relevance, downloads, follows, newest or
 /// updated. `category` narrows to one of the tag names from `/tag/category`.
-/// `loaders` are category facets too, OR'd together inside one facet: a Quilt
-/// instance asks for quilt *or* fabric because it runs both. Resource packs and
-/// shaders have no loader to filter on and pass an empty slice.
+/// `mc_version` and `loaders` are category facets, OR'd together inside one
+/// facet: a Quilt instance asks for quilt *or* fabric because it runs both.
+/// Resource packs and shaders have no loader to filter on and pass an empty
+/// slice; a modpack carries its own Minecraft version, so the pack browser
+/// passes `None` for the version rather than guessing one.
 pub async fn search(
     query: &str,
-    mc_version: &str,
+    mc_version: Option<&str>,
     sort: &str,
     category: Option<&str>,
     offset: u32,
@@ -119,10 +121,10 @@ pub async fn search(
     project_type: &str,
     loaders: &[&str],
 ) -> Result<SearchPage> {
-    let mut facets = vec![
-        format!(r#"["project_type:{project_type}"]"#),
-        format!(r#"["versions:{mc_version}"]"#),
-    ];
+    let mut facets = vec![format!(r#"["project_type:{project_type}"]"#)];
+    if let Some(mc_version) = mc_version {
+        facets.push(format!(r#"["versions:{mc_version}"]"#));
+    }
     if !loaders.is_empty() {
         let any: Vec<String> = loaders.iter().map(|l| format!(r#""categories:{l}""#)).collect();
         facets.push(format!("[{}]", any.join(",")));
@@ -160,6 +162,13 @@ pub async fn versions(project: &str, mc_version: &str, loaders: &[&str]) -> Resu
         json_array(loaders)
     );
     download::json(&url).await
+}
+
+/// Every release of a project with no filters — the pack browser's version
+/// picker, where narrowing by one Minecraft version is wrong: each build of a
+/// pack names its own.
+pub async fn all_versions(project: &str) -> Result<Vec<Version>> {
+    download::json(&format!("{API}/project/{}/version", urlencode(project))).await
 }
 
 /// The newest version of a project for this Minecraft version, preferring a

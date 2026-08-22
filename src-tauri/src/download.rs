@@ -15,6 +15,17 @@ const PARALLEL: usize = 16;
 /// How often the UI is told about progress. Fast enough to look live, slow
 /// enough that a 5000-file install does not flood the webview with events.
 const TICK: Duration = Duration::from_millis(200);
+/// How many times one request is tried before its error is given up on. The
+/// first try plus two retries survives a blip and one rate-limit round trip
+/// without turning a dead URL into a minute of waiting.
+const ATTEMPTS: u32 = 3;
+/// The first wait between attempts; each further one is four times longer, so
+/// the whole ladder is 2 s then 8 s. Long enough for a rate limit to pass,
+/// short enough that a retry does not feel like a hang.
+const BACKOFF: Duration = Duration::from_secs(2);
+/// The longest a server's `Retry-After` is obeyed for. A server that asks for
+/// an hour is not going to be ready in this batch either way.
+const MAX_SERVER_WAIT: Duration = Duration::from_secs(60);
 
 /// One file to fetch. `sha1` and `size` are optional because Fabric's Maven
 /// entries carry neither.
@@ -69,37 +80,130 @@ async fn is_valid(job: &Job) -> bool {
     }
 }
 
+/// Whether an HTTP status is worth another attempt. Anything else — 404, 403,
+/// a redirect that landed on an error — is a statement about the URL, not
+/// about the connection, and waiting will not change the answer.
+fn retryable_status(status: reqwest::StatusCode) -> bool {
+    status == reqwest::StatusCode::REQUEST_TIMEOUT
+        || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        || status.is_server_error()
+}
+
+/// A network error is worth another attempt when the request never got a
+/// complete answer: the connection failed, timed out or was cut mid-request.
+/// A malformed URL or a TLS failure is just as permanent the second time.
+fn retryable_error(error: &reqwest::Error) -> bool {
+    error.is_connect() || error.is_timeout() || error.is_request()
+}
+
+/// Parse `Retry-After` in its delay-seconds form, capped. The HTTP-date form
+/// exists in the spec but file CDNs send seconds; a date falls back to the
+/// ordinary backoff ladder, which is close enough.
+fn retry_after(header: Option<&reqwest::header::HeaderValue>) -> Option<Duration> {
+    let seconds: u64 = header?.to_str().ok()?.trim().parse().ok()?;
+    Some(Duration::from_secs(seconds).min(MAX_SERVER_WAIT))
+}
+
+/// The wait before attempt `n` (counted from 1) when the server did not name
+/// one: 2 s, then 8 s.
+fn backoff(attempt: u32) -> Duration {
+    BACKOFF * 4u32.pow(attempt - 1)
+}
+
+/// What one attempt concluded.
+enum Attempt {
+    Done,
+    /// Worth another try. `wait` is the delay the server asked for with
+    /// `Retry-After`, if it did; `None` means the caller's own ladder decides.
+    Again { error: Error, wait: Option<Duration> },
+    /// Not worth another try: the URL, the disk or the data is the problem.
+    Stop(Error),
+}
+
+impl From<std::io::Error> for Attempt {
+    fn from(e: std::io::Error) -> Self {
+        Attempt::Stop(e.into())
+    }
+}
+
 /// Download one file, verifying its checksum, counting bytes as they arrive.
-async fn fetch_one(client: &reqwest::Client, job: &Job, bytes_done: &AtomicU64) -> Result<()> {
+/// `bytes_done` is rolled back on a failed attempt, so a retried file does not
+/// inflate the transfer readout by its own size.
+async fn fetch_once(client: &reqwest::Client, job: &Job, bytes_done: &AtomicU64) -> Attempt {
     if let Some(parent) = job.path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            return Attempt::Stop(e.into());
+        }
     }
 
-    let mut stream = client
-        .get(&job.url)
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes_stream();
+    let response = match client.get(&job.url).send().await {
+        Ok(response) => response,
+        Err(e) if retryable_error(&e) => {
+            return Attempt::Again { error: e.into(), wait: None }
+        }
+        Err(e) => return Attempt::Stop(e.into()),
+    };
+
+    let status = response.status();
+    if !status.is_success() {
+        let error = Error::msg(format!("HTTP {} for {}", status.as_u16(), job.url));
+        if !retryable_status(status) {
+            return Attempt::Stop(error);
+        }
+        let wait = if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            retry_after(response.headers().get("retry-after"))
+        } else {
+            None
+        };
+        return Attempt::Again { error, wait };
+    }
 
     // Streamed rather than `.bytes()` so the speed readout updates during a
     // single large file — the client jar alone is 40 MB.
+    let mut counted = 0u64;
+    let result = stream_to_file(response, job, bytes_done, &mut counted).await;
+    if !matches!(result, Attempt::Done) {
+        // Give back what this attempt told the UI about, so the retry counts
+        // its bytes from zero rather than double-reporting the failed try.
+        bytes_done.fetch_sub(counted, Ordering::Relaxed);
+    }
+    result
+}
+
+/// Write the response body to the job's path with its SHA-1 verified. Only
+/// disk errors stop here: anything off the network — a cut stream, a checksum
+/// mismatch, usually a truncated body the server called complete — is worth
+/// one more attempt.
+async fn stream_to_file(
+    response: reqwest::Response,
+    job: &Job,
+    bytes_done: &AtomicU64,
+    counted: &mut u64,
+) -> Attempt {
+    let mut stream = response.bytes_stream();
     let mut body = Vec::with_capacity(job.size.unwrap_or(0) as usize);
     let mut hasher = Sha1::new();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(e) => return Attempt::Again { error: e.into(), wait: None },
+        };
         hasher.update(&chunk);
         body.extend_from_slice(&chunk);
+        *counted += chunk.len() as u64;
         bytes_done.fetch_add(chunk.len() as u64, Ordering::Relaxed);
     }
 
     if let Some(want) = &job.sha1 {
         let got = hex::encode(hasher.finalize());
         if !got.eq_ignore_ascii_case(want) {
-            return Err(Error::msg(format!(
-                "checksum mismatch for {}: expected {want}, got {got}",
-                job.url
-            )));
+            return Attempt::Again {
+                error: Error::msg(format!(
+                    "checksum mismatch for {}: expected {want}, got {got}",
+                    job.url
+                )),
+                wait: None,
+            };
         }
     }
 
@@ -111,17 +215,39 @@ async fn fetch_one(client: &reqwest::Client, job: &Job, bytes_done: &AtomicU64) 
     let mut tmp_name = job.path.file_name().unwrap_or_default().to_os_string();
     tmp_name.push(".part");
     let tmp = job.path.with_file_name(tmp_name);
-    tokio::fs::write(&tmp, &body).await?;
-    tokio::fs::rename(&tmp, &job.path).await?;
-    Ok(())
+    if let Err(e) = tokio::fs::write(&tmp, &body).await {
+        return Attempt::Stop(e.into());
+    }
+    if let Err(e) = tokio::fs::rename(&tmp, &job.path).await {
+        return Attempt::Stop(e.into());
+    }
+    Attempt::Done
+}
+
+/// Download one file with up to `ATTEMPTS` tries, waiting in between.
+///
+/// A home connection blips and CDNs rate-limit, and before this loop one
+/// failed request took a 5000-file install down with it. Retrying is per file,
+/// so the other fifteen keep flowing while one waits out its backoff.
+async fn fetch_one(client: &reqwest::Client, job: &Job, bytes_done: &AtomicU64) -> Result<()> {
+    let mut attempt = 1;
+    loop {
+        match fetch_once(client, job, bytes_done).await {
+            Attempt::Done => return Ok(()),
+            Attempt::Stop(e) => return Err(e),
+            Attempt::Again { wait, .. } if attempt < ATTEMPTS => {
+                tokio::time::sleep(wait.unwrap_or_else(|| backoff(attempt))).await;
+                attempt += 1;
+            }
+            Attempt::Again { error, .. } => return Err(error),
+        }
+    }
 }
 
 /// Download every job that is not already present, at most `PARALLEL` at once,
 /// reporting progress and transfer rate to the UI as it goes.
 pub async fn run(app: &AppHandle, stage: &str, jobs: Vec<Job>) -> Result<()> {
-    let client = reqwest::Client::builder()
-        .user_agent(concat!("JustLauncher/", env!("CARGO_PKG_VERSION")))
-        .build()?;
+    let client = client()?;
 
     // Filter first so the totals describe the actual work, not the whole
     // version. On a reinstall this usually leaves the list empty.
@@ -212,12 +338,50 @@ pub async fn run(app: &AppHandle, stage: &str, jobs: Vec<Job>) -> Result<()> {
     Ok(())
 }
 
+fn client() -> Result<reqwest::Client> {
+    Ok(reqwest::Client::builder()
+        .user_agent(concat!("JustLauncher/", env!("CARGO_PKG_VERSION")))
+        .build()?)
+}
+
+/// Send a request with the same retry ladder the file fetcher uses. A manifest
+/// or search reply is one request on the critical path of everything, so a
+/// single blip there fails a whole step; `RequestBuilder::try_clone` decides
+/// whether a body can even be re-sent (ours always can: plain JSON).
+async fn send(request: reqwest::RequestBuilder) -> Result<reqwest::Response> {
+    for attempt in 1..=ATTEMPTS {
+        let response = match request.try_clone() {
+            Some(sendable) => sendable.send().await,
+            // Cannot be re-sent, so this is the one shot at it.
+            None => return Ok(request.send().await?.error_for_status()?),
+        };
+
+        let response = match response {
+            Ok(response) => response,
+            Err(e) if attempt < ATTEMPTS && retryable_error(&e) => {
+                tokio::time::sleep(backoff(attempt)).await;
+                continue;
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        let status = response.status();
+        if status.is_success() || attempt == ATTEMPTS || !retryable_status(status) {
+            return Ok(response.error_for_status()?);
+        }
+        let wait = if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            retry_after(response.headers().get("retry-after"))
+        } else {
+            None
+        };
+        tokio::time::sleep(wait.unwrap_or_else(|| backoff(attempt))).await;
+    }
+    unreachable!("the loop returns on its final attempt")
+}
+
 /// Fetch and deserialise JSON, with the launcher's user agent.
 pub async fn json<T: serde::de::DeserializeOwned>(url: &str) -> Result<T> {
-    let client = reqwest::Client::builder()
-        .user_agent(concat!("JustLauncher/", env!("CARGO_PKG_VERSION")))
-        .build()?;
-    Ok(client.get(url).send().await?.error_for_status()?.json().await?)
+    Ok(send(client()?.get(url)).await?.json().await?)
 }
 
 /// POST a JSON body and decode the JSON reply. Modrinth's bulk update check is
@@ -226,10 +390,7 @@ pub async fn post_json<T: serde::de::DeserializeOwned>(
     url: &str,
     body: &serde_json::Value,
 ) -> Result<T> {
-    let client = reqwest::Client::builder()
-        .user_agent(concat!("JustLauncher/", env!("CARGO_PKG_VERSION")))
-        .build()?;
-    Ok(client.post(url).json(body).send().await?.error_for_status()?.json().await?)
+    Ok(send(client()?.post(url).json(body)).await?.json().await?)
 }
 
 #[cfg(test)]
@@ -281,5 +442,45 @@ mod tests {
     async fn existence_alone_suffices_when_nothing_is_declared() {
         let path = temp_file("bare", 5);
         assert!(is_valid(&job(path, None, None)).await);
+    }
+
+    #[test]
+    fn only_connection_trouble_is_worth_trying_again() {
+        use reqwest::StatusCode;
+        for retryable in [
+            StatusCode::REQUEST_TIMEOUT,
+            StatusCode::TOO_MANY_REQUESTS,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::BAD_GATEWAY,
+            StatusCode::SERVICE_UNAVAILABLE,
+        ] {
+            assert!(retryable_status(retryable), "{retryable}");
+        }
+        for permanent in [
+            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
+            StatusCode::NOT_FOUND,
+            StatusCode::GONE,
+        ] {
+            assert!(!retryable_status(permanent), "{permanent}");
+        }
+    }
+
+    #[test]
+    fn retry_after_is_read_in_seconds_and_capped() {
+        let of = |s: &str| reqwest::header::HeaderValue::from_str(s).unwrap();
+        assert_eq!(retry_after(Some(&of("30"))), Some(Duration::from_secs(30)));
+        // A server that asks for an hour is refused past the cap; one that
+        // sends a date, or nonsense, gets the ordinary backoff ladder instead.
+        assert_eq!(retry_after(Some(&of("3600"))), Some(MAX_SERVER_WAIT));
+        assert_eq!(retry_after(Some(&of("Wed, 21 Oct 2015 07:28:00 GMT"))), None);
+        assert_eq!(retry_after(Some(&of("soon"))), None);
+        assert_eq!(retry_after(None), None);
+    }
+
+    #[test]
+    fn the_backoff_ladder_grows() {
+        assert_eq!(backoff(1), Duration::from_secs(2));
+        assert_eq!(backoff(2), Duration::from_secs(8));
     }
 }
