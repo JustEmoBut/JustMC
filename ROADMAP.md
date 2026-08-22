@@ -36,14 +36,39 @@ deploy steps and their extra libraries. Reference entry points:
 `launcher/minecraft/update/` and the component system in
 `launcher/minecraft/PackProfile.cpp`.
 
-## 2. Skin management
+## 2. Quick Play: join a server or world on double click
+
+`--quickPlayMultiplayer <address>` and `--quickPlaySingleplayer <folder>`
+(1.20+) launch straight into a server or a save, which is what the Servers and
+Worlds panels are missing. A few arguments in `launch::build_command` plus a
+double-click handler in each panel. Prism shipped this on 2026-08-21 (#5941).
+
+## 3. Total play time, and sorting by it
+
+Per-instance play time is already recorded. What is missing is the launcher's
+own total, sorting the instance list by it, and a per-instance opt out of
+being counted. Prism: #5881, #5714, #5765.
+
+## 4. Loose ends from Prism's develop
+
+Small, each independent, each with a real complaint behind it:
+
+- The device code flow reports nothing when authorisation fails — no message,
+  no code, no retry. Prism #5645; `auth.rs` already translates XSTS `XErr`
+  codes and this deserves the same.
+- A JVM that fails to spawn surfaces in the UI but never reaches
+  `logs/latest.log`, which is the file a user is asked to send. Prism #5644.
+- `UpdateReview.svelte` has no select-all / select-none. Prism #5946.
+- No restart button while an instance runs. Prism #5646.
+
+## 5. Skin management
 
 Upload and select skins and capes against
 `api.minecraftservices.com/minecraft/profile`, and render avatars from the
 profile's own skin instead of the third-party `api.mineatar.io`. Reference:
 `launcher/minecraft/skins/`.
 
-## 3. Launcher self-update
+## 6. Launcher self-update
 
 Check GitHub Releases, offer the update, swap the binary. The original ships a
 standalone updater exe (`launcher/updater/`); a Tauri updater plugin likely
@@ -71,3 +96,8 @@ cleared on 2026-08-22.
 
 CurseForge (API key and download restrictions), world creation and renaming,
 custom themes, Prism/MultiMC instance import, i18n.
+
+Also declined from Prism's develop, deliberately: multiple instance
+directories and choosing one per instance (#5827) — the launcher has one root
+and the filesystem is the database; wildcards in the instance name field
+(#5837); an icon-picker category selector (#4397).
