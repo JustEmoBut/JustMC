@@ -94,6 +94,11 @@ cleared on 2026-08-22.
 CurseForge (API key and download restrictions), world creation and renaming,
 custom themes, Prism/MultiMC instance import, i18n.
 
+LiteLoader, the original's fifth loader: its last release was 1.12.2 in 2017.
+Swappable LWJGL and Java-runtime vendors (the original serves Azul, IBM,
+Adoptium and Mojang as components) are also out — Mojang's own runtime is what
+`jre.rs` fetches, and nothing has needed replacing.
+
 Also declined from Prism's develop, deliberately: multiple instance
 directories and choosing one per instance (#5827) — the launcher has one root
 and the filesystem is the database; wildcards in the instance name field

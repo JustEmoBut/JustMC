@@ -148,6 +148,15 @@ if assumed away:
 - **Quilt's list is unordered.** Fabric returns newest first; Quilt returned
   `0.20.0-beta.9, 0.20.0-beta.7, …, 0.24.0`, so `loaders` sorts both.
 
+**Each project's own profile is the whole install.** The Qt original models
+Fabric as *two* components against its own metadata server: the loader
+(`net.fabricmc.fabric-loader`: Knot, asm, mixin) plus a `volatile`
+`net.fabricmc.intermediary` pinned to the Minecraft version — and Quilt's
+component `requires` Fabric's intermediary too. That split exists to serve its
+component system, which resolves and re-pins pieces independently. Fetching
+`/v2/versions/loader/<mc>/<loader>/profile/json` returns all of it already
+merged, so there is nothing here to split and no metadata server to run.
+
 Which Modrinth loader tags a mod search uses belongs to the **instance**, not
 the folder: `Loader::mod_loaders` asks for `quilt` *and* `fabric` on a Quilt
 instance, because Quilt runs Fabric mods and asking for `quilt` alone returned
@@ -202,6 +211,24 @@ NeoForge 21.1.248) and each a silent wrong result if assumed away:
 `live_metadata` installs both for real — the processors are a series of JVM
 invocations against a recipe no unit test stands in for, and a wrong step
 produces a jar that exists and crashes.
+
+**Why not the Qt original's route.** It never runs the processors. Its
+metadata server converts each installer into a component ahead of time, and
+the profile's `mainClass` is not Forge's at all but **ForgeWrapper**, a
+third-party shim that runs the processors *at launch* and then hands off. That
+buys a launcher two dependencies: a metadata service to operate, and a pinned
+wrapper build to keep current (`ForgeWrapper:prism-2026-08-01` at the time of
+writing). Running the recipe at install time is what the official installer
+does, needs neither, and puts nothing extra on the classpath. Its `mavenFiles`
+— downloaded, deliberately off the classpath — is the same idea as the tool
+jars `tool_jobs` fetches, and it hits the same `@zip` coordinates, which is
+independent confirmation that both details are real rather than guessed.
+
+Two things it carries that this launcher does not need: a conflict matrix
+between loaders (an instance here has one `loader` field, so two cannot be
+installed at once) and a legacy FML libraries step for Forge older than 1.6,
+which is well below the 1.13 floor. Its fifth loader, LiteLoader, stopped at
+1.12.2 in 2017 and is not worth a module.
 
 ### Instance archives (`pack.rs`, `mrpack.rs`)
 
