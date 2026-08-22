@@ -300,3 +300,21 @@ async fn quilt_lists_loaders_and_publishes_a_profile() {
     assert!(profile.main_class.contains("quilt"), "got {}", profile.main_class);
     assert!(!profile.libraries.is_empty());
 }
+
+/// The server-list ping, against a real public server. The protocol is the
+/// one part of this feature no unit test can prove: a wrong varint or a
+/// mis-ordered handshake looks fine until something is listening.
+#[tokio::test]
+#[ignore = "network"]
+async fn a_public_server_answers_its_status() {
+    let status = justlauncher_lib::servers::ping("mc.hypixel.net".into()).await.unwrap();
+    assert!(status.max > 0, "a server reports a player cap");
+    assert!(!status.version.is_empty(), "a server names its version");
+    assert!(!status.motd.is_empty(), "a server sends a MOTD");
+    // No section signs survive the flattening the list shows.
+    assert!(!status.motd.contains('§'), "{}", status.motd);
+    assert!(status.latency_ms < 5000);
+
+    // A port nothing listens on is an error, not a hang or a panic.
+    assert!(justlauncher_lib::servers::ping("127.0.0.1:1".into()).await.is_err());
+}

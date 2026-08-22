@@ -16,6 +16,8 @@
     | "search"
     | "copy"
     | "image"
+    | "refresh"
+    | "server"
     | "gear";
 
   let { name, size = 15 }: { name: IconName; size?: number } = $props();
@@ -65,6 +67,12 @@
   {:else if name === "copy"}
     <rect x="5.5" y="5.5" width="8" height="8" rx="1.2" />
     <path d="M10.5 3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1" />
+  {:else if name === "refresh"}
+    <path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5V5h-2.5" />
+  {:else if name === "server"}
+    <rect x="2.5" y="3" width="11" height="4" rx="1" />
+    <rect x="2.5" y="9" width="11" height="4" rx="1" />
+    <path d="M5 5h.01M5 11h.01" />
   {:else if name === "search"}
     <circle cx="7.2" cy="7.2" r="4.2" />
     <path d="m10.4 10.4 3 3" />

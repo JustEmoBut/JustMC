@@ -55,6 +55,9 @@ Chromium is bundled.
 - Per-instance worlds with their in-game names: back one up as a zip that
   unpacks straight back into `saves`, or delete it
 - Browse an instance's screenshots and delete the ones not worth keeping
+- The instance's multiplayer server list, read from and written to the game's
+  own `servers.dat`, with a live status ping per server: MOTD, player count,
+  latency and icon
 
 ## Not included
 
@@ -112,6 +115,8 @@ src-tauri/src/
   mods.rs           mods, resourcepacks, shaderpacks: list, enable, delete
   modrinth.rs       Modrinth search and jar resolution
   worlds.rs         world listing, backup and delete
+  servers.rs        servers.dat editing and status pings
+  nbt.rs            the slice of NBT servers.dat needs
   logs.rs           game, launcher and crash report logs
   screenshots.rs    screenshot listing and delete
 ```

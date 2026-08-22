@@ -24,6 +24,7 @@
   import Mods from "./lib/Mods.svelte";
   import Modal from "./lib/Modal.svelte";
   import Screenshots from "./lib/Screenshots.svelte";
+  import Servers from "./lib/Servers.svelte";
   import Worlds from "./lib/Worlds.svelte";
   import NewInstance from "./lib/NewInstance.svelte";
   import Settings from "./lib/Settings.svelte";
@@ -52,6 +53,7 @@
   let editing = $state<Instance | null>(null);
   let managingMods = $state<Instance | null>(null);
   let managingWorlds = $state<Instance | null>(null);
+  let managingServers = $state<Instance | null>(null);
   let viewingShots = $state<Instance | null>(null);
   /** Which folder the content window is showing, so a drop lands in it. */
   let modsKind = $state<ModKind>("mods");
@@ -293,6 +295,11 @@
           action: () => (managingWorlds = instance),
         },
         {
+          label: "Servers",
+          icon: "server",
+          action: () => (managingServers = instance),
+        },
+        {
           label: "Screenshots",
           icon: "image",
           action: () => (viewingShots = instance),
@@ -478,6 +485,7 @@
         onedit={(i) => (editing = i)}
         onmods={openContent}
         onworlds={(i) => (managingWorlds = i)}
+        onservers={(i) => (managingServers = i)}
         onscreenshots={(i) => (viewingShots = i)}
         onexport={(i) => (exporting = i)}
         onchanged={refreshInstances}
@@ -545,6 +553,14 @@
       instance={managingWorlds}
       running={!!busy[managingWorlds.id]}
       onclose={() => (managingWorlds = null)}
+    />
+  {/if}
+
+  {#if managingServers}
+    <Servers
+      instance={managingServers}
+      running={!!busy[managingServers.id]}
+      onclose={() => (managingServers = null)}
     />
   {/if}
 

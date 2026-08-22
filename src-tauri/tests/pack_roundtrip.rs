@@ -298,3 +298,60 @@ async fn an_mrpack_export_separates_the_pack_from_the_player() {
 
     let _ = std::fs::remove_dir_all(std::env::var("JUSTLAUNCHER_HOME").unwrap());
 }
+
+/// The server list: read what the game wrote, add one, remove one, and leave
+/// the keys this launcher does not understand alone.
+#[tokio::test]
+async fn servers_are_listed_added_and_removed() {
+    use justlauncher_lib::nbt::{self, Tag};
+    use justlauncher_lib::servers;
+
+    let _home = scratch_home();
+    let instance = sample();
+    instance.save().await.unwrap();
+
+    // What the game itself leaves behind, including a key we never write.
+    let existing = Tag::Compound(vec![(
+        "servers".to_string(),
+        Tag::List(
+            10,
+            vec![Tag::Compound(vec![
+                ("name".to_string(), Tag::String("Hypixel".into())),
+                ("ip".to_string(), Tag::String("mc.hypixel.net".into())),
+                ("acceptTextures".to_string(), Tag::Byte(1)),
+            ])],
+        ),
+    )]);
+    let file = instance.game_dir().join("servers.dat");
+    std::fs::create_dir_all(instance.game_dir()).unwrap();
+    std::fs::write(&file, nbt::write("", &existing)).unwrap();
+
+    let list = servers::list(&instance.id).await.unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].name, "Hypixel");
+    assert_eq!(list[0].ip, "mc.hypixel.net");
+
+    servers::add(&instance.id, "Home", "192.168.1.10:25566").await.unwrap();
+    let list = servers::list(&instance.id).await.unwrap();
+    assert_eq!(list.len(), 2);
+    assert_eq!((list[1].index, list[1].ip.as_str()), (1, "192.168.1.10:25566"));
+
+    // The game's own key survived the rewrite.
+    let (_, root) = nbt::read(&std::fs::read(&file).unwrap()).unwrap();
+    let first = &root.get("servers").unwrap();
+    let Tag::List(_, items) = first else { panic!("servers is not a list") };
+    assert_eq!(items[0].get("acceptTextures"), Some(&Tag::Byte(1)));
+
+    // A position whose address no longer matches deletes nothing.
+    assert!(servers::remove(&instance.id, 1, "mc.hypixel.net").await.is_err());
+    assert!(servers::remove(&instance.id, 9, "whatever").await.is_err());
+    assert_eq!(servers::list(&instance.id).await.unwrap().len(), 2);
+
+    servers::remove(&instance.id, 0, "mc.hypixel.net").await.unwrap();
+    let list = servers::list(&instance.id).await.unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].ip, "192.168.1.10:25566");
+
+    // An address is the one thing an entry cannot do without.
+    assert!(servers::add(&instance.id, "Nowhere", "  ").await.is_err());
+}

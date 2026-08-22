@@ -92,6 +92,28 @@ export interface World {
   last_played: number;
 }
 
+/** One entry of an instance's `servers.dat`. */
+export interface Server {
+  /** Position in the file, and the handle the remove command takes. */
+  index: number;
+  name: string;
+  /** As stored, port included; this is what gets pinged. */
+  ip: string;
+  /** The icon the game cached, already a data URI. */
+  icon: string | null;
+}
+
+/** What a server answered when asked for its status. */
+export interface ServerStatus {
+  version: string;
+  online: number;
+  max: number;
+  /** The MOTD, flattened to plain text. */
+  motd: string;
+  favicon: string | null;
+  latency_ms: number;
+}
+
 /** Which directory a log came from; also how the backend finds it again. */
 export type LogSource = "launcher" | "game" | "crash";
 
@@ -213,6 +235,15 @@ export const api = {
   backupWorld: (id: string, folder: string) =>
     invoke<string>("backup_world", { id, folder }),
   deleteWorld: (id: string, folder: string) => invoke<void>("delete_world", { id, folder }),
+
+  listServers: (id: string) => invoke<Server[]>("list_servers", { id }),
+  addServer: (id: string, name: string, ip: string) =>
+    invoke<void>("add_server", { id, name, ip }),
+  /** The address goes with the position so a list that moved deletes nothing. */
+  removeServer: (id: string, index: number, ip: string) =>
+    invoke<void>("remove_server", { id, index, ip }),
+  /** Status of one server; one call each, so answers can land as they arrive. */
+  pingServer: (address: string) => invoke<ServerStatus>("ping_server", { address }),
 
   /** Past logs and crash reports of an instance, newest first. */
   listLogs: (id: string) => invoke<LogFile[]>("list_logs", { id }),

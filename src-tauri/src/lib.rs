@@ -14,7 +14,9 @@ pub mod logs;
 pub mod mods;
 pub mod modrinth;
 
+pub mod nbt;
 pub mod screenshots;
+pub mod servers;
 pub mod settings;
 pub mod worlds;
 
@@ -231,6 +233,32 @@ async fn backup_world(id: String, folder: String) -> Result<String> {
 #[tauri::command]
 async fn delete_world(id: String, folder: String) -> Result<()> {
     worlds::delete(&id, &folder).await
+}
+
+// ------------------------------------------------------------------ servers
+
+#[tauri::command]
+async fn list_servers(id: String) -> Result<Vec<servers::Server>> {
+    servers::list(&id).await
+}
+
+#[tauri::command]
+async fn add_server(id: String, name: String, ip: String) -> Result<()> {
+    servers::add(&id, &name, &ip).await
+}
+
+/// The address is sent back with the position so a list that moved under the
+/// user deletes nothing.
+#[tauri::command]
+async fn remove_server(id: String, index: usize, ip: String) -> Result<()> {
+    servers::remove(&id, index, &ip).await
+}
+
+/// Ask one server for its status. One command per server, so the UI can show
+/// each answer as it lands instead of waiting for the slowest.
+#[tauri::command]
+async fn ping_server(address: String) -> Result<servers::Status> {
+    servers::ping(address).await
 }
 
 // ------------------------------------------------------- logs and crash reports
@@ -605,6 +633,10 @@ pub fn run() {
             stop_instance,
             list_screenshots,
             delete_screenshot,
+            list_servers,
+            add_server,
+            remove_server,
+            ping_server,
             list_worlds,
             backup_world,
             delete_world,

@@ -15,13 +15,17 @@ the code there is C++/Qt and gets rethought for this stack, not ported.
   searches and installs packs, any build of them; Export offers the `.mrpack`
   format alongside the zip, with Modrinth-servable jars as downloads and the
   player's own files left out.
+- **Server list with live pings.** `servers.dat` is read and written through a
+  small NBT module that round-trips keys the launcher does not understand, and
+  each entry is pinged over the status protocol for its MOTD, player count,
+  latency and icon. SRV records are not resolved yet — see below.
 
-## 1. Server list with live pings
+## 1. Resolve SRV records for server addresses
 
-Read and write `.minecraft/servers.dat` (NBT), resolve SRV records, and show
-live status pings (handshake/status protocol over TCP). Reference:
-`launcher/ui/pages/instance/McClient.cpp`, `McResolver.cpp`,
-`ServersPage.cpp`.
+A server published only as `_minecraft._tcp.<host>`, with no A record on the
+bare host, cannot be pinged or reached from the list. Doing it without a
+dependency means writing DNS packets *and* finding the system resolver on
+every platform, so this wants `hickory-resolver`. Reference: `McResolver.cpp`.
 
 ## 2. Forge and NeoForge
 
@@ -61,6 +65,7 @@ fits this stack better.
 Marked `ponytail:` in the code:
 
 - `download.rs` — resumed files accepted on size match alone, no re-hash
+- `servers.rs` — no SRV lookup, and the round trip stands in for a ping packet
 - `java.rs` — RAM detected by shelling out instead of a sysinfo call
 - `mods.rs` — jar metadata cache grows without a bound
 - `worlds.rs` — world names found by scanning `level.dat` bytes, not parsing NBT

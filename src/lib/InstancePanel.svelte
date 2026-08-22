@@ -11,6 +11,7 @@
     onedit,
     onmods,
     onworlds,
+    onservers,
     onscreenshots,
     onexport,
     onchanged,
@@ -22,6 +23,7 @@
     onedit: (instance: Instance) => void;
     onmods: (instance: Instance) => void;
     onworlds: (instance: Instance) => void;
+    onservers: (instance: Instance) => void;
     onscreenshots: (instance: Instance) => void;
     onexport: (instance: Instance) => void;
     onchanged: () => Promise<void>;
@@ -118,6 +120,10 @@
     <button onclick={() => onworlds(instance)}>
       <Icon name="folder" />
       Worlds
+    </button>
+    <button onclick={() => onservers(instance)}>
+      <Icon name="server" />
+      Servers
     </button>
     <button onclick={() => onscreenshots(instance)}>
       <Icon name="image" />
