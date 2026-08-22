@@ -147,12 +147,34 @@ pub async fn poll_device_code(code: DeviceCode) -> Result<Account> {
         match body["error"].as_str().unwrap_or("") {
             "authorization_pending" => continue,
             "slow_down" => interval += 5,
-            other => {
-                return Err(Error::msg(format!(
-                    "Sign-in failed: {}",
-                    if other.is_empty() { "unknown error" } else { other }
-                )))
-            }
+            other => return Err(Error::msg(device_code_error(other, &body))),
+        }
+    }
+}
+
+/// Microsoft answers a failed device-code poll with a machine-readable `error`
+/// and a paragraph of English in `error_description`. The codes are the errors
+/// real users hit — a declined consent screen or a code left too long — so each
+/// gets a sentence that says what to do, the way XSTS's `XErr` codes do.
+fn device_code_error(code: &str, body: &serde_json::Value) -> String {
+    match code {
+        "authorization_declined" => {
+            "Sign-in was declined in the browser. Try again and choose Yes.".into()
+        }
+        "expired_token" => {
+            "The sign-in code expired before it was used. Try again.".into()
+        }
+        "bad_verification_code" => {
+            "Microsoft did not recognise the sign-in code. Try again.".into()
+        }
+        other => {
+            // Anything unlisted: Microsoft's own description beats its code.
+            let detail = body["error_description"]
+                .as_str()
+                .map(|d| d.lines().next().unwrap_or(d).trim())
+                .filter(|d| !d.is_empty())
+                .unwrap_or(if other.is_empty() { "unknown error" } else { other });
+            format!("Sign-in failed: {detail}")
         }
     }
 }

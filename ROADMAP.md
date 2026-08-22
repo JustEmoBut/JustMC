@@ -26,6 +26,20 @@ the code there is C++/Qt and gets rethought for this stack, not ported.
   and runs the processors that build the patched client jar. Modern format
   only (`spec` 1: Forge 1.13+, every NeoForge); older Forge is refused with a
   message. `.mrpack` imports of Forge packs work as a result.
+- **Quick Play.** A row in the Servers or Worlds panel launches straight into
+  that server or save, by button or double click. Whether the version can be
+  told is asked of its own metadata — 1.20+ declares the flags under
+  `is_quick_play_*` feature rules — rather than by comparing version numbers,
+  which would guess wrong on the snapshots either side of 1.20.
+- **Play time, counted and sorted.** The status strip carries the launcher's
+  own total, the instance grid sorts by name or play time as well as by when it
+  was last played, and an instance kept for testing can opt out of being
+  counted (`count_play_time`).
+- **Four loose ends from Prism's develop.** A failed device-code sign-in says
+  what went wrong instead of printing Microsoft's error slug (#5645); the
+  command line and any spawn failure reach `logs/latest.log`, the file users
+  are asked to send (#5644); the update review has select-all and select-none
+  (#5946); and a running instance has a Restart button beside Stop (#5646).
 - **Server list with live pings.** `servers.dat` is read and written through a
   small NBT module that round-trips keys the launcher does not understand, and
   each entry is pinged over the status protocol for its MOTD, player count,
@@ -33,39 +47,14 @@ the code there is C++/Qt and gets rethought for this stack, not ported.
   (`hickory-resolver`) the way the game's own list does; a typed port is left
   alone.
 
-## 1. Quick Play: join a server or world on double click
-
-`--quickPlayMultiplayer <address>` and `--quickPlaySingleplayer <folder>`
-(1.20+) launch straight into a server or a save, which is what the Servers and
-Worlds panels are missing. A few arguments in `launch::build_command` plus a
-double-click handler in each panel. Prism shipped this on 2026-08-21 (#5941).
-
-## 2. Total play time, and sorting by it
-
-Per-instance play time is already recorded. What is missing is the launcher's
-own total, sorting the instance list by it, and a per-instance opt out of
-being counted. Prism: #5881, #5714, #5765.
-
-## 3. Loose ends from Prism's develop
-
-Small, each independent, each with a real complaint behind it:
-
-- The device code flow reports nothing when authorisation fails — no message,
-  no code, no retry. Prism #5645; `auth.rs` already translates XSTS `XErr`
-  codes and this deserves the same.
-- A JVM that fails to spawn surfaces in the UI but never reaches
-  `logs/latest.log`, which is the file a user is asked to send. Prism #5644.
-- `UpdateReview.svelte` has no select-all / select-none. Prism #5946.
-- No restart button while an instance runs. Prism #5646.
-
-## 4. Skin management
+## 1. Skin management
 
 Upload and select skins and capes against
 `api.minecraftservices.com/minecraft/profile`, and render avatars from the
 profile's own skin instead of the third-party `api.mineatar.io`. Reference:
 `launcher/minecraft/skins/`.
 
-## 5. Launcher self-update
+## 2. Launcher self-update
 
 Check GitHub Releases, offer the update, swap the binary. The original ships a
 standalone updater exe (`launcher/updater/`); a Tauri updater plugin likely

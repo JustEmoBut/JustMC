@@ -38,6 +38,7 @@ fn sample() -> Instance {
         jvm_args: "-XX:+UseG1GC".into(),
         last_played: 1_700_000_000,
         play_time: 7_200,
+        count_play_time: true,
         installed: true,
     }
 }

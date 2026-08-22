@@ -47,8 +47,15 @@ export interface Instance {
   last_played: number;
   /** Seconds the game has run in this instance, across every launch. */
   play_time: number;
+  /** Whether a session here adds to the play time counters. */
+  count_play_time: boolean;
   installed: boolean;
 }
+
+/** A server to join or a save to open on launch; Minecraft calls it Quick Play. */
+export type QuickPlay =
+  | { kind: "multiplayer"; value: string }
+  | { kind: "singleplayer"; value: string };
 
 export interface ManifestVersion {
   id: string;
@@ -232,8 +239,16 @@ export const api = {
     invoke<Instance>("duplicate_instance", { id, name }),
   openExportsFolder: () => invoke<void>("open_exports_folder"),
   installInstance: (id: string) => invoke<void>("install_instance", { id }),
-  launchInstance: (id: string, accountId: string) =>
-    invoke<void>("launch_instance", { id, accountId }),
+  /** `quickPlay` joins a server or opens a save instead of stopping at the menu. */
+  launchInstance: (id: string, accountId: string, quickPlay: QuickPlay | null = null) =>
+    invoke<void>("launch_instance", { id, accountId, quickPlay }),
+
+  /**
+   * Whether this instance can be told what to join. Asked of the version's own
+   * metadata, never of its number: Minecraft's 2026 scheme means "26.2" would
+   * read as older than 1.20.
+   */
+  quickPlaySupported: (id: string) => invoke<boolean>("quick_play_supported", { id }),
 
   stopInstance: (id: string) => invoke<boolean>("stop_instance", { id }),
   listAccounts: () => invoke<Account[]>("list_accounts"),

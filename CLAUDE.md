@@ -74,6 +74,21 @@ already 17+), 32-bit JVMs against `-Xmx` over 2048 MB, and `memory_mb` against
 `java::physical_memory_mb`. Unprobeable is not incompatible — only block on a
 positive answer.
 
+**A version number is never a capability test.** Minecraft moved to a
+year-based scheme in 2026, so an instance can be on `26.2`, and a snapshot
+carries no minor version at all — "is the minor version at least 20" reads both
+as older than 1.20. Ask the metadata what it declares instead:
+`launch::supports_quick_play` looks for the `is_quick_play_*` feature rules the
+version itself ships, and the `quick_play_supported` command exists so the
+Servers and Worlds panels ask the same question the launch path does rather
+than guessing in TypeScript. The frontend guessed once, and the Play button
+silently never appeared.
+
+`mojang::merge` extends the argument lists rather than replacing them, so a
+loader profile that declares no Quick Play arguments still inherits vanilla's —
+which is why the command resolves only `install::vanilla_version` and never
+downloads a Forge installer to answer.
+
 ### Data layout
 
 The filesystem is the database — no index, no cache. A user can copy, delete or

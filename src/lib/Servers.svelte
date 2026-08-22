@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { api, errorMessage, type Instance, type Server, type ServerStatus } from "./api";
+  import {
+    api,
+    errorMessage,
+    type Instance,
+    type Server,
+    type ServerStatus,
+  } from "./api";
   import Icon from "./Icon.svelte";
   import Modal from "./Modal.svelte";
   import { notify } from "./toast.svelte";
@@ -8,12 +14,39 @@
     instance,
     running,
     onclose,
+    onjoin,
   }: {
     instance: Instance;
     /** The game rewrites servers.dat on exit and would drop an edit made under it. */
     running: boolean;
     onclose: () => void;
+    /** Launch straight into this address; the dialog closes behind it. */
+    onjoin: (address: string) => void;
   } = $props();
+
+  /**
+   * Whether this version understands Quick Play, from its own metadata. Null
+   * until the answer lands, so nothing is offered and nothing is denied yet.
+   */
+  let quickPlay = $state<boolean | null>(null);
+  const canJoin = $derived(quickPlay === true && !running);
+
+  $effect(() => {
+    // An unreachable manifest or an unknown version leaves the button showing:
+    // the launch path checks again and gives the honest error there.
+    api
+      .quickPlaySupported(instance.id)
+      .then((yes) => (quickPlay = yes))
+      .catch(() => (quickPlay = true));
+  });
+
+  function join(server: Server) {
+    if (!canJoin) return;
+    // Launch first: closing clears the caller's reference to this instance, so
+    // handing the address over afterwards hands it to nothing.
+    onjoin(server.ip);
+    onclose();
+  }
 
   let servers = $state<Server[]>([]);
   let loading = $state(true);
@@ -48,8 +81,15 @@
       status[server.ip] = "pending";
       api
         .pingServer(server.ip)
-        .then((answer) => (status[server.ip] = answer))
-        .catch(() => (status[server.ip] = "offline"));
+        // Braces, not a concise body: an assignment to a reactive object
+        // evaluates to the right-hand side rather than to what was stored, and
+        // returning that is what Svelte warns about.
+        .then((answer) => {
+          status[server.ip] = answer;
+        })
+        .catch(() => {
+          status[server.ip] = "offline";
+        });
     }
   }
 
@@ -112,6 +152,13 @@
 </script>
 
 <Modal title="Servers — {instance.name}" {onclose} width="640px">
+  {#if !running && quickPlay === false}
+    <p class="muted note">
+      Joining from here needs Minecraft 1.20 or newer; this instance is on
+      {instance.mc_version}.
+    </p>
+  {/if}
+
   {#if running}
     <p class="warn">
       {instance.name} is running. It rewrites the server list when it quits, so changes made here
@@ -126,7 +173,8 @@
   {:else}
     <ul>
       {#each servers as server (server.index)}
-        <li>
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <li class:joinable={canJoin} ondblclick={() => join(server)}>
           {#if icon(server)}
             <img src={icon(server)} alt="" width="32" height="32" />
           {:else}
@@ -146,6 +194,12 @@
             <button onclick={() => (confirming = -1)}>Cancel</button>
             <button class="really" onclick={() => remove(server)}>Remove</button>
           {:else}
+            {#if canJoin}
+              <button onclick={() => join(server)} title="Launch straight into this server">
+                <Icon name="play" />
+                Join
+              </button>
+            {/if}
             <button onclick={() => retry(server.ip)} title="Ping again">
               <Icon name="refresh" />
             </button>
@@ -246,6 +300,15 @@
   form input {
     flex: 1;
     min-width: 0;
+  }
+
+  .joinable {
+    cursor: default;
+  }
+
+  .note {
+    margin-bottom: 10px;
+    font-size: 12px;
   }
 
   .warn {

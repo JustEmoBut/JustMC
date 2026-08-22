@@ -88,6 +88,10 @@ pub struct Instance {
     /// Seconds the game has run in this instance, across every launch.
     #[serde(default)]
     pub play_time: u64,
+    /// Whether a session here adds to the counters. Off for an instance kept
+    /// for testing, whose minutes are not time the user spent playing.
+    #[serde(default = "yes")]
+    pub count_play_time: bool,
     /// Whether the install step has completed at least once.
     #[serde(default)]
     pub installed: bool,
@@ -97,6 +101,12 @@ pub struct Instance {
 /// its heap from the launcher settings instead.
 fn default_memory() -> u32 {
     4096
+}
+
+/// `#[serde(default)]` on a bool is `false`; an instance.json that predates the
+/// field was counting, so it has to keep counting.
+fn yes() -> bool {
+    true
 }
 
 /// Unix seconds now. The clock can disagree with itself across a launch, so
@@ -209,6 +219,7 @@ pub async fn create(
         jvm_args: defaults.jvm_args,
         last_played: 0,
         play_time: 0,
+        count_play_time: true,
         installed: false,
     };
     tokio::fs::create_dir_all(instance.game_dir()).await?;
@@ -279,6 +290,7 @@ mod tests {
             jvm_args: String::new(),
             last_played: 0,
             play_time: 0,
+            count_play_time: true,
             installed: false,
         };
         assert_eq!(i.version_id(), "1.21");
@@ -288,6 +300,15 @@ mod tests {
         i.loader = Loader::Fabric;
         i.loader_version = "0.16.0".into();
         assert_eq!(i.version_id(), "fabric-loader-0.16.0-1.21");
+    }
+
+    #[test]
+    fn an_instance_from_before_the_field_keeps_counting() {
+        let old: Instance = serde_json::from_str(
+            r#"{"id":"a","name":"a","mc_version":"1.21","play_time":60}"#,
+        )
+        .unwrap();
+        assert!(old.count_play_time);
     }
 
     #[tokio::test]

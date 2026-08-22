@@ -8,6 +8,7 @@
     instance,
     status,
     onlaunch,
+    onrestart,
     onedit,
     onmods,
     onworlds,
@@ -20,6 +21,7 @@
     /** Non-empty while installing or running. */
     status: string | undefined;
     onlaunch: (instance: Instance) => void;
+    onrestart: (instance: Instance) => void;
     onedit: (instance: Instance) => void;
     onmods: (instance: Instance) => void;
     onworlds: (instance: Instance) => void;
@@ -94,10 +96,20 @@
   </button>
 
   {#if status === "Running"}
-    <button class="stop" onclick={() => actions.stopInstance(instance)}>
-      <Icon name="stop" size={13} />
-      Stop
-    </button>
+    <div class="row running">
+      <button class="stop" onclick={() => actions.stopInstance(instance)}>
+        <Icon name="stop" size={13} />
+        Stop
+      </button>
+      <button
+        class="stop"
+        onclick={() => onrestart(instance)}
+        title="Quit the game and start it again"
+      >
+        <Icon name="refresh" size={13} />
+        Restart
+      </button>
+    </div>
   {/if}
 
   <nav>
@@ -224,12 +236,18 @@
     box-shadow: var(--bevel), 0 0 24px rgb(63 178 122 / 0.25);
   }
 
+  .running {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
   .stop {
+    flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    margin-top: 8px;
     padding: 7px;
   }
 

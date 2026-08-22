@@ -191,9 +191,21 @@
     <input id="s-args" bind:value={draft.jvm_args} placeholder="-XX:+UseG1GC" spellcheck="false" />
   </div>
 
+  <div class="field">
+    <label for="s-count">Play time</label>
+    <label class="check">
+      <input id="s-count" type="checkbox" bind:checked={draft.count_play_time} />
+      Count sessions here towards play time
+    </label>
+    <p class="faint">
+      Turn it off for an instance kept for testing. What is already recorded
+      stays; only new sessions stop being added.
+    </p>
+  </div>
+
   <div class="meta">
     <span>Minecraft {instance.mc_version}</span>
-    <span>{playTime(instance.play_time)}</span>
+    <span>{playTime(instance.play_time)}{instance.count_play_time ? "" : " · not counted"}</span>
     <span>
       {instance.loader === "vanilla"
         ? "Vanilla"

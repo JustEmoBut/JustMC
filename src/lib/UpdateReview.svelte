@@ -35,6 +35,23 @@
   width="640px"
   {onclose}
 >
+  {#if updates.length > 1}
+    <div class="bulk">
+      <span class="faint">{chosen.size} of {updates.length} selected</span>
+      <span class="spacer"></span>
+      <button
+        class="ghost"
+        disabled={chosen.size === updates.length}
+        onclick={() => (chosen = new Set(updates.map((u) => u.file)))}
+      >
+        Select all
+      </button>
+      <button class="ghost" disabled={chosen.size === 0} onclick={() => (chosen = new Set())}>
+        Select none
+      </button>
+    </div>
+  {/if}
+
   <ul>
     {#each updates as update (update.file)}
       <li>
@@ -80,6 +97,20 @@
 </Modal>
 
 <style>
+  .bulk {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 4px 8px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+
+  .bulk button {
+    padding: 3px 8px;
+    font-size: 12px;
+  }
+
   ul {
     list-style: none;
     max-height: 56vh;

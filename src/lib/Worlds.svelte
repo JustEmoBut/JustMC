@@ -8,12 +8,39 @@
     instance,
     running,
     onclose,
+    onplay,
   }: {
     instance: Instance;
     /** A world being written to while it is copied or deleted is not safe. */
     running: boolean;
     onclose: () => void;
+    /** Launch straight into this save folder; the dialog closes behind it. */
+    onplay: (folder: string) => void;
   } = $props();
+
+  /**
+   * Whether this version understands Quick Play, from its own metadata. Null
+   * until the answer lands, so nothing is offered and nothing is denied yet.
+   */
+  let quickPlay = $state<boolean | null>(null);
+  const canPlay = $derived(quickPlay === true && !running);
+
+  $effect(() => {
+    // An unreachable manifest or an unknown version leaves the button showing:
+    // the launch path checks again and gives the honest error there.
+    api
+      .quickPlaySupported(instance.id)
+      .then((yes) => (quickPlay = yes))
+      .catch(() => (quickPlay = true));
+  });
+
+  function open(world: World) {
+    if (!canPlay) return;
+    // Launch first: closing clears the caller's reference to this instance, so
+    // handing the folder over afterwards hands it to nothing.
+    onplay(world.folder);
+    onclose();
+  }
 
   let worlds = $state<World[]>([]);
   let loading = $state(true);
@@ -82,10 +109,16 @@
   {:else}
     {#if running}
       <p class="warn">{instance.name} is running. Stop it before touching a world.</p>
+    {:else if quickPlay === false}
+      <p class="muted note">
+        Opening a world from here needs Minecraft 1.20 or newer; this instance is
+        on {instance.mc_version}.
+      </p>
     {/if}
     <ul>
       {#each worlds as world (world.folder)}
-        <li>
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <li ondblclick={() => open(world)}>
           <div class="what">
             <strong>{world.name}</strong>
             <span class="muted">{detail(world)}</span>
@@ -96,6 +129,12 @@
             <button onclick={() => (confirming = "")}>Cancel</button>
             <button class="really" onclick={() => remove(world)}>Delete</button>
           {:else}
+            {#if canPlay}
+              <button onclick={() => open(world)} title="Launch straight into this world">
+                <Icon name="play" />
+                Play
+              </button>
+            {/if}
             <button
               disabled={running || !!busy}
               onclick={() => backup(world)}
@@ -158,6 +197,11 @@
 
   .what .muted {
     font-size: 11px;
+  }
+
+  .note {
+    margin-bottom: 10px;
+    font-size: 12px;
   }
 
   .warn {

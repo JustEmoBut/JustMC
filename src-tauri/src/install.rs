@@ -16,7 +16,7 @@ pub fn client_jar(mc_version: &str) -> PathBuf {
         .join(format!("{mc_version}.jar"))
 }
 
-async fn vanilla_version(mc_version: &str) -> Result<VersionJson> {
+pub async fn vanilla_version(mc_version: &str) -> Result<VersionJson> {
     let manifest = mojang::manifest().await?;
     let entry = manifest
         .versions

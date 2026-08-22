@@ -11,6 +11,7 @@
     type Instance,
     type LogFile,
     type ModKind,
+    type QuickPlay,
     type Settings as SettingsData,
   } from "./lib/api";
   import Accounts from "./lib/Accounts.svelte";
@@ -39,6 +40,8 @@
   let selectedAccount = $state("");
   let selectedId = $state("");
   let search = $state("");
+  /** How the grid is ordered; "recent" is what the backend already hands over. */
+  let sort = $state<"recent" | "name" | "played">("recent");
 
   /**
    * Launcher-wide preferences. Held here because `play` and the game-exit
@@ -77,12 +80,36 @@
   let menu = $state<{ x: number; y: number; items: MenuItem[] } | null>(null);
   let deleting = $state<Instance | null>(null);
   let exporting = $state<Instance | null>(null);
+  /**
+   * The instance to launch again as soon as its process reports it has gone.
+   * Restart cannot wait on `stop`: the kill is asynchronous and a second launch
+   * before the first exits is refused, so the exit event is the signal.
+   */
+  let restarting = $state("");
 
   const visible = $derived(
-    instances.filter((i) =>
-      `${i.name} ${i.mc_version}`.toLowerCase().includes(search.trim().toLowerCase())
-    )
+    instances
+      .filter((i) =>
+        `${i.name} ${i.mc_version}`.toLowerCase().includes(search.trim().toLowerCase())
+      )
+      .sort((a, b) => {
+        if (sort === "name") return a.name.localeCompare(b.name);
+        if (sort === "played") return b.play_time - a.play_time;
+        return 0; // the backend already sorted by last played
+      })
   );
+
+  /** Every instance that counts, so the number matches what the tiles say. */
+  const totalPlayed = $derived(
+    instances.reduce((sum, i) => sum + (i.count_play_time ? i.play_time : 0), 0)
+  );
+
+  /** Hours once there are any; a launcher total below a minute is not news. */
+  function totalPlayTime(seconds: number) {
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} min played`;
+    return `${Math.floor(minutes / 60)} h played`;
+  }
   const selected = $derived(visible.find((i) => i.id === selectedId));
   const activeAccount = $derived(accounts.find((a) => a.id === selectedAccount));
 
@@ -147,7 +174,14 @@
       }),
       listen<{ instance: string; code: number }>("game-exited", (e) => {
         delete busy[e.payload.instance];
-        const name = instances.find((i) => i.id === e.payload.instance)?.name ?? "Game";
+        const instance = instances.find((i) => i.id === e.payload.instance);
+        const name = instance?.name ?? "Game";
+        if (restarting === e.payload.instance) {
+          restarting = "";
+          if (instance) play(instance);
+          refreshInstances();
+          return;
+        }
         if (e.payload.code === 0) {
           notify(`${name} closed.`);
         } else {
@@ -217,7 +251,20 @@
     await refreshInstances();
   }
 
-  async function play(instance: Instance) {
+  /** Stop the game and start it again once the process is actually gone. */
+  async function restart(instance: Instance) {
+    busy[instance.id] = "Restarting…";
+    // Nothing listening means the process is already gone and no exit event is
+    // coming, so this is the only chance to start the next one.
+    if (await api.stopInstance(instance.id)) {
+      restarting = instance.id;
+    } else {
+      delete busy[instance.id];
+      play(instance);
+    }
+  }
+
+  async function play(instance: Instance, quickPlay: QuickPlay | null = null) {
     if (!selectedAccount) {
       showAccounts = true;
       notify("Add an account first.", "error");
@@ -227,7 +274,7 @@
     log = [];
     task.begin(instance.installed ? `Starting ${instance.name}` : `Installing ${instance.name}`);
     try {
-      await api.launchInstance(instance.id, selectedAccount);
+      await api.launchInstance(instance.id, selectedAccount, quickPlay);
       busy[instance.id] = "Running";
       showLog = true;
       // Only once the process is actually up: a launch that fails must leave
@@ -240,6 +287,7 @@
       await refreshInstances();
     } catch (e) {
       delete busy[instance.id];
+      restarting = "";
       notify(errorMessage(e), "error");
     } finally {
       task.end();
@@ -274,6 +322,11 @@
                 label: "Stop",
                 icon: "stop" as const,
                 action: () => actions.stopInstance(instance),
+              },
+              {
+                label: "Restart",
+                icon: "refresh" as const,
+                action: () => restart(instance),
               },
             ]
           : []),
@@ -444,6 +497,12 @@
       <input bind:value={search} placeholder="Search" aria-label="Search instances" />
     </div>
 
+    <select class="sort" bind:value={sort} aria-label="Sort instances">
+      <option value="recent">Recently played</option>
+      <option value="name">Name</option>
+      <option value="played">Play time</option>
+    </select>
+
     <button class="primary new" onclick={() => (showNew = true)}>
       <Icon name="plus" size={13} />
       New instance
@@ -482,6 +541,7 @@
         instance={selected}
         status={busy[selected.id]}
         onlaunch={play}
+        onrestart={restart}
         onedit={(i) => (editing = i)}
         onmods={openContent}
         onworlds={(i) => (managingWorlds = i)}
@@ -516,6 +576,10 @@
       {/if}
     {/if}
     <span class="spacer"></span>
+    {#if totalPlayed}
+      <span>{totalPlayTime(totalPlayed)}</span>
+      <span class="sep">·</span>
+    {/if}
     <span>{instances.length} {instances.length === 1 ? "instance" : "instances"}</span>
   </div>
   </div>
@@ -553,6 +617,7 @@
       instance={managingWorlds}
       running={!!busy[managingWorlds.id]}
       onclose={() => (managingWorlds = null)}
+      onplay={(folder) => play(managingWorlds!, { kind: "singleplayer", value: folder })}
     />
   {/if}
 
@@ -561,6 +626,7 @@
       instance={managingServers}
       running={!!busy[managingServers.id]}
       onclose={() => (managingServers = null)}
+      onjoin={(address) => play(managingServers!, { kind: "multiplayer", value: address })}
     />
   {/if}
 
@@ -774,6 +840,12 @@
 
   .find input:focus {
     outline: none;
+  }
+
+  .sort {
+    width: auto;
+    padding: 7px 8px;
+    font-size: 12.5px;
   }
 
   .new {

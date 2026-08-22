@@ -193,10 +193,27 @@ async fn install_instance(app: tauri::AppHandle, id: String) -> Result<()> {
 }
 
 #[tauri::command]
-async fn launch_instance(app: tauri::AppHandle, id: String, account_id: String) -> Result<()> {
+async fn launch_instance(
+    app: tauri::AppHandle,
+    id: String,
+    account_id: String,
+    quick_play: Option<launch::QuickPlay>,
+) -> Result<()> {
     let inst = instance::get(&id).await?;
     let account = resolve_account(&account_id).await?;
-    launch::launch(&app, inst, account).await
+    launch::launch(&app, inst, account, quick_play).await
+}
+
+/// Whether this instance's Minecraft can be told what to join on launch.
+///
+/// Answered from the vanilla version metadata, which is a file read once it has
+/// been installed. The loader profile is not resolved: it only ever adds
+/// arguments, and resolving Forge's means downloading an installer.
+#[tauri::command]
+async fn quick_play_supported(id: String) -> Result<bool> {
+    let inst = instance::get(&id).await?;
+    let version = install::vanilla_version(&inst.mc_version).await?;
+    Ok(launch::supports_quick_play(&version))
 }
 
 /// Ask the running game to quit. Silently does nothing if it already exited.
@@ -636,6 +653,7 @@ pub fn run() {
             open_mods_folder,
             install_instance,
             launch_instance,
+            quick_play_supported,
             stop_instance,
             list_screenshots,
             delete_screenshot,

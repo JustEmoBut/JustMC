@@ -72,6 +72,52 @@ pub struct Exited {
     pub code: i32,
 }
 
+/// A server address or save folder to drop straight into, from the Servers or
+/// Worlds panel. Minecraft calls this Quick Play and has shipped it since 1.20.
+#[derive(serde::Deserialize, Clone, Debug)]
+#[serde(tag = "kind", content = "value", rename_all = "lowercase")]
+pub enum QuickPlay {
+    Multiplayer(String),
+    Singleplayer(String),
+}
+
+impl QuickPlay {
+    fn flag(&self) -> &'static str {
+        match self {
+            QuickPlay::Multiplayer(_) => "--quickPlayMultiplayer",
+            QuickPlay::Singleplayer(_) => "--quickPlaySingleplayer",
+        }
+    }
+
+    fn value(&self) -> &str {
+        match self {
+            QuickPlay::Multiplayer(v) | QuickPlay::Singleplayer(v) => v,
+        }
+    }
+}
+
+/// Whether this version understands the Quick Play flags.
+///
+/// Asked of the metadata rather than of the version number: 1.20+ declares the
+/// flags under `is_quick_play_*` feature rules, and a snapshot from the release
+/// before it does not — comparing "1.20" against `23w14a` would guess wrong.
+/// `rules_allow` never matches a feature rule, so the arguments themselves are
+/// dropped and this launcher supplies its own.
+///
+/// Public because the Servers and Worlds panels ask it before offering to join
+/// anything: the version *number* cannot answer it. Minecraft moved to a
+/// year-based scheme in 2026, so "is the minor version at least 20" reads 26.2
+/// as older than 1.20 and hides a button that works.
+pub fn supports_quick_play(version: &VersionJson) -> bool {
+    let Some(arguments) = &version.arguments else { return false };
+    arguments.game.iter().any(|arg| match arg {
+        Arg::Conditional { rules, .. } => rules
+            .iter()
+            .any(|r| r.features.keys().any(|k| k.starts_with("is_quick_play"))),
+        Arg::Plain(_) => false,
+    })
+}
+
 /// Expand `${placeholder}` tokens using the substitution table. Unknown tokens
 /// are left as-is: Mojang adds new ones over time and a literal is less harmful
 /// than dropping the argument.
@@ -134,6 +180,7 @@ pub fn build_command(
     account: &Account,
     jars: &[std::path::PathBuf],
     natives: &Path,
+    quick_play: Option<&QuickPlay>,
 ) -> Result<Vec<String>> {
     if version.main_class.is_empty() {
         return Err(Error::msg("Version metadata has no main class."));
@@ -220,6 +267,17 @@ pub fn build_command(
         (None, None) => return Err(Error::msg("Version metadata has no game arguments.")),
     }
 
+    if let Some(quick) = quick_play {
+        if !supports_quick_play(version) {
+            return Err(Error::msg(format!(
+                "Minecraft {} cannot be told what to join from the launcher; that needs 1.20 or newer.",
+                instance.mc_version
+            )));
+        }
+        cmd.push(quick.flag().into());
+        cmd.push(quick.value().into());
+    }
+
     Ok(cmd)
 }
 
@@ -247,7 +305,12 @@ async fn pump_log<R>(
 }
 
 /// Install if needed, then spawn the game and stream its output to the UI.
-pub async fn launch(app: &AppHandle, mut instance: Instance, account: Account) -> Result<()> {
+pub async fn launch(
+    app: &AppHandle,
+    mut instance: Instance,
+    account: Account,
+    quick_play: Option<QuickPlay>,
+) -> Result<()> {
     let _guard = RunningGuard::claim(&instance.id).ok_or_else(|| {
         Error::msg(format!("{} is already running.", instance.name))
     })?;
@@ -294,9 +357,29 @@ pub async fn launch(app: &AppHandle, mut instance: Instance, account: Account) -
             jre::ensure(app, component, required).await?
         }
     };
-    let args = build_command(&version, &instance, &account, &cp.jars, &instance.natives_dir())?;
+    let args = build_command(
+        &version,
+        &instance,
+        &account,
+        &cp.jars,
+        &instance.natives_dir(),
+        quick_play.as_ref(),
+    )?;
 
     tokio::fs::create_dir_all(instance.game_dir()).await?;
+
+    // Opened before the spawn, not after: a JVM that fails to start is exactly
+    // the failure a user is asked to send this file for, and it used to reach
+    // the UI only. Truncated per launch, like the game's own latest.log.
+    let log_dir = instance.dir().join("logs");
+    tokio::fs::create_dir_all(&log_dir).await?;
+    let mut log = tokio::fs::File::create(log_dir.join("latest.log")).await?;
+    let _ = log
+        .write_all(format!("{java_bin}
+{}
+
+", args.join(" ")).as_bytes())
+        .await;
 
     let mut command = tokio::process::Command::new(&java_bin);
     command
@@ -308,9 +391,15 @@ pub async fn launch(app: &AppHandle, mut instance: Instance, account: Account) -
     #[cfg(windows)]
     command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
 
-    let mut child = command.spawn().map_err(|e| {
-        Error::msg(format!("Failed to start Java at {java_bin}: {e}"))
-    })?;
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            let message = format!("Failed to start Java at {java_bin}: {e}");
+            let _ = log.write_all(message.as_bytes()).await;
+            let _ = log.flush().await;
+            return Err(Error::msg(message));
+        }
+    };
 
     instance.last_played = instance::now_secs();
     instance.save().await?;
@@ -320,12 +409,7 @@ pub async fn launch(app: &AppHandle, mut instance: Instance, account: Account) -
     let stderr = child.stderr.take();
     let id = instance.id.clone();
 
-    // Truncated per launch, like the game's own latest.log.
-    let log_dir = instance.dir().join("logs");
-    tokio::fs::create_dir_all(&log_dir).await?;
-    let log_file = Arc::new(tokio::sync::Mutex::new(
-        tokio::fs::File::create(log_dir.join("latest.log")).await?,
-    ));
+    let log_file = Arc::new(tokio::sync::Mutex::new(log));
 
     // The game outlives this command; detach it and report through events so a
     // crash after five minutes still reaches the log view.
@@ -353,9 +437,13 @@ pub async fn launch(app: &AppHandle, mut instance: Instance, account: Account) -
 
         // Re-read rather than reusing the copy captured at launch: the settings
         // dialog may have written the file while the game was running.
+        // Re-read also decides whether to count at all: the instance may have
+        // opted out while the game was running.
         if let Ok(mut played) = instance::get(&id).await {
-            played.play_time += instance::now_secs().saturating_sub(started);
-            let _ = played.save().await;
+            if played.count_play_time {
+                played.play_time += instance::now_secs().saturating_sub(started);
+                let _ = played.save().await;
+            }
         }
         let _ = app_handle.emit("game-exited", Exited { instance: id, code });
     });
@@ -390,6 +478,35 @@ mod tests {
         assert_eq!(substitute("${auth_player_name}", &vars()), "Notch");
         assert_eq!(substitute("--v=${version_name}!", &vars()), "--v=1.21!");
         assert_eq!(substitute("plain", &vars()), "plain");
+    }
+
+    #[test]
+    fn quick_play_is_offered_only_when_the_version_declares_it() {
+        let mut version = VersionJson::default();
+        assert!(!supports_quick_play(&version), "no arguments at all");
+
+        version.arguments = Some(crate::mojang::Arguments {
+            game: vec![Arg::Plain("--demo".into())],
+            jvm: Vec::new(),
+        });
+        assert!(!supports_quick_play(&version), "pre-1.20 shape");
+
+        let feature = |name: &str| crate::mojang::Rule {
+            action: "allow".into(),
+            os: None,
+            features: HashMap::from([(name.to_string(), true)]),
+        };
+        version.arguments.as_mut().unwrap().game.push(Arg::Conditional {
+            rules: vec![feature("is_demo_user")],
+            value: crate::mojang::StringOrList::One("--demo".into()),
+        });
+        assert!(!supports_quick_play(&version), "some other feature rule");
+
+        version.arguments.as_mut().unwrap().game.push(Arg::Conditional {
+            rules: vec![feature("is_quick_play_multiplayer")],
+            value: crate::mojang::StringOrList::One("--quickPlayMultiplayer".into()),
+        });
+        assert!(supports_quick_play(&version));
     }
 
     #[test]

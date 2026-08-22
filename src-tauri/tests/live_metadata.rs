@@ -9,7 +9,7 @@ use justlauncher_lib::auth::offline_account;
 use justlauncher_lib::loader;
 use justlauncher_lib::install::{classpath, resolve};
 use justlauncher_lib::instance::{Instance, Loader};
-use justlauncher_lib::launch::build_command;
+use justlauncher_lib::launch::{build_command, QuickPlay};
 
 /// Whatever JVM is on PATH: the installer's processors are ordinary Java
 /// programs, and a machine running these tests is expected to have one.
@@ -29,6 +29,7 @@ fn instance(mc_version: &str, loader: Loader, loader_version: &str) -> Instance 
         jvm_args: "-XX:+UseG1GC".into(),
         last_played: 0,
         play_time: 0,
+        count_play_time: true,
         installed: false,
     }
 }
@@ -49,6 +50,7 @@ async fn check(inst: Instance) -> Vec<String> {
         &account,
         &cp.jars,
         std::path::Path::new("/tmp/natives"),
+        None,
     )
     .expect("build command");
 
@@ -66,8 +68,27 @@ async fn check(inst: Instance) -> Vec<String> {
 #[tokio::test]
 #[ignore]
 async fn modern_vanilla_resolves_and_builds_args() {
-    let args = check(instance("1.21.4", Loader::Vanilla, "")).await;
+    let inst = instance("1.21.4", Loader::Vanilla, "");
+    let args = check(inst.clone()).await;
     println!("vanilla args: {}", args.join(" "));
+
+    // Quick Play is detected from the version's own feature rules, so a change
+    // in how Mojang declares it would otherwise show up as a silent no-op.
+    let version = resolve(&inst).await.unwrap();
+    let cp = classpath(&version, &inst.mc_version).unwrap();
+    let account = offline_account("TestPlayer").unwrap();
+    let joined = build_command(
+        &version,
+        &inst,
+        &account,
+        &cp.jars,
+        std::path::Path::new("/tmp/natives"),
+        Some(&QuickPlay::Multiplayer("mc.example.com".into())),
+    )
+    .expect("1.21.4 must accept a quick play target");
+    let flag = joined.iter().position(|a| a == "--quickPlayMultiplayer");
+    assert!(flag.is_some(), "quick play flag missing: {joined:?}");
+    assert_eq!(joined[flag.unwrap() + 1], "mc.example.com");
 }
 
 #[tokio::test]
@@ -375,7 +396,7 @@ async fn neoforge_installs_and_builds_a_launch_command() {
     assert!(patched.metadata().unwrap().len() > 1_000_000, "patched jar is suspiciously small");
 
     let account = offline_account("TestPlayer").unwrap();
-    let args = build_command(&version, &inst, &account, &cp.jars, &inst.natives_dir()).unwrap();
+    let args = build_command(&version, &inst, &account, &cp.jars, &inst.natives_dir(), None).unwrap();
 
     let leftover: Vec<_> = args.iter().filter(|a| a.contains("${")).collect();
     assert!(leftover.is_empty(), "unexpanded placeholders: {leftover:?}");
@@ -433,7 +454,7 @@ async fn forge_installs_and_puts_its_patched_jar_on_the_classpath() {
     }
 
     let account = offline_account("TestPlayer").unwrap();
-    let args = build_command(&version, &inst, &account, &cp.jars, &inst.natives_dir()).unwrap();
+    let args = build_command(&version, &inst, &account, &cp.jars, &inst.natives_dir(), None).unwrap();
     let leftover: Vec<_> = args.iter().filter(|a| a.contains("${")).collect();
     assert!(leftover.is_empty(), "unexpanded placeholders: {leftover:?}");
     assert!(args.iter().any(|a| a == "forge_client"), "the FML launch target is missing");
