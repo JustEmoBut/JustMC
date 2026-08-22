@@ -356,6 +356,15 @@
 
   const toggle = (mod: ModFile) => api.setModEnabled(instance.id, kind, mod.file, !mod.enabled);
   const remove = (mod: ModFile) => api.deleteMod(instance.id, kind, mod.file);
+
+  /** Deleting an unpacked pack wipes a whole tree, so those are confirmed
+      first; a single file is one undo-able download away and is not. */
+  let confirmingDelete = $state<{ targets: ModFile[]; only?: ModFile } | null>(null);
+  function askRemove(only?: ModFile) {
+    const targets = only ? [only] : mods.filter((m) => selection.has(m.file));
+    if (targets.some((m) => m.dir)) confirmingDelete = { targets, only };
+    else bulk(remove, only);
+  }
   const enable = (mod: ModFile) => api.setModEnabled(instance.id, kind, mod.file, true);
   const disable = (mod: ModFile) => api.setModEnabled(instance.id, kind, mod.file, false);
 
@@ -442,7 +451,7 @@
         <span>{selection.size} selected</span>
         <button onclick={() => bulk(enable)}>Enable</button>
         <button onclick={() => bulk(disable)}>Disable</button>
-        <button class="danger" onclick={() => bulk(remove)}>Delete</button>
+        <button class="danger" onclick={() => askRemove()}>Delete</button>
         <button class="ghost" onclick={() => (selection = new Set())}>Clear</button>
       </div>
     {/if}
@@ -464,7 +473,9 @@
           {/if}
           <span class="text">
             <strong>{mod.name}</strong>
-            <span class="faint data">{mod.version || "unknown version"} · {size(mod.size)}</span>
+            <span class="faint data">
+              {mod.version || "unknown version"} · {mod.dir ? "folder" : size(mod.size)}
+            </span>
           </span>
           <span class="file data faint">{mod.file}</span>
           {#if update}
@@ -488,7 +499,7 @@
           >
             <span class="knob"></span>
           </button>
-          <button class="ghost" aria-label="Delete {mod.name}" onclick={() => bulk(remove, mod)}>
+          <button class="ghost" aria-label="Delete {mod.name}" onclick={() => askRemove(mod)}>
             <Icon name="trash" />
           </button>
         </li>
@@ -665,11 +676,44 @@
   {/if}
 </Modal>
 
+{#if confirmingDelete}
+  {@const targets = confirmingDelete.targets}
+  <Modal title="Delete {noun(targets.length)}?" onclose={() => (confirmingDelete = null)}>
+    <p>
+      {targets.filter((m) => m.dir).length === 1 ? "One of these is" : "Some of these are"}
+      an unpacked folder. Deleting removes the folder and everything inside it.
+    </p>
+    <ul class="targets">
+      {#each targets as t (t.file)}
+        <li>{t.file}{t.dir ? " (folder)" : ""}</li>
+      {/each}
+    </ul>
+    {#snippet footer()}
+      <button onclick={() => (confirmingDelete = null)}>Cancel</button>
+      <button
+        class="danger"
+        onclick={() => {
+          const { only } = confirmingDelete!;
+          confirmingDelete = null;
+          bulk(remove, only);
+        }}
+      >
+        Delete
+      </button>
+    {/snippet}
+  </Modal>
+{/if}
+
 {#if reviewing}
   <UpdateReview updates={reviewing} onclose={() => (reviewing = null)} onconfirm={applyUpdates} />
 {/if}
 
 <style>
+  .targets {
+    margin: 8px 0 0;
+    padding-left: 18px;
+  }
+
   .tabs,
   .filters,
   .bulk {

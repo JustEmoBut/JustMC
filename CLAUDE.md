@@ -200,6 +200,17 @@ Names come from whatever the archive states: `fabric.mod.json` for a mod,
 `pack.mcmeta` plus `pack.png` for a resource pack, and the file name when there
 is neither — which is the usual case for a shader.
 
+A pack does not have to be a zip. The game reads one unpacked into a directory
+just as happily, so `list` lists those too — but only when the game itself
+would: `pack.mcmeta` for a resource pack, a `shaders/` subdirectory for a
+shader. That test is what keeps an unrelated folder someone parked in there off
+a list whose trash button is a `remove_dir_all`; `ModFile.dir` marks the ones
+that are, and the frontend confirms before deleting one. A folder has no jar to
+hash, so it carries no SHA-1 and Modrinth never claims it — it cannot be
+matched, updated or counted as installed, which is correct, since nothing on
+Modrinth ships unpacked. Mods stay archives only: a loader ignores an exploded
+jar.
+
 File names cross the IPC boundary and are joined onto a path, so `checked_name`
 rejects separators, `..` and absolute paths before any of them touches the disk.
 

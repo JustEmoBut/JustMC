@@ -192,3 +192,50 @@ async fn worlds_are_listed_backed_up_and_deleted() {
     assert!(!saves.exists());
     assert!(justlauncher_lib::worlds::list(&instance.id).await.unwrap().is_empty());
 }
+
+/// Unpacked pack folders: only the ones the game itself would read are listed,
+/// and deleting one takes the whole tree with it.
+#[tokio::test]
+async fn unpacked_pack_folders_are_listed_and_deleted() {
+    use justlauncher_lib::mods::{self, Kind};
+    scratch_home();
+    let instance = sample();
+    instance.save().await.unwrap();
+
+    let packs = instance.game_dir().join("resourcepacks");
+    std::fs::create_dir_all(packs.join("Faithful/assets")).unwrap();
+    std::fs::write(
+        packs.join("Faithful/pack.mcmeta"),
+        br#"{"pack":{"pack_format":15,"description":"32x textures"}}"#,
+    )
+    .unwrap();
+    std::fs::write(packs.join("Faithful/assets/a.png"), vec![1u8; 16]).unwrap();
+    // No pack.mcmeta, so not a pack: never listed, never deletable from here.
+    std::fs::create_dir_all(packs.join("old backup")).unwrap();
+
+    let listed = mods::list(&instance.id, Kind::Resourcepacks).await.unwrap();
+    assert_eq!(listed.len(), 1, "only folders the game reads are packs");
+    assert_eq!(listed[0].file, "Faithful");
+    assert_eq!(listed[0].version, "32x textures");
+    assert!(listed[0].dir && listed[0].enabled);
+    assert!(listed[0].sha1.is_empty(), "a folder has no jar to match on Modrinth");
+
+    // Shaders are recognised by a shaders/ directory instead.
+    let shaders = instance.game_dir().join("shaderpacks");
+    std::fs::create_dir_all(shaders.join("BSL/shaders")).unwrap();
+    let listed = mods::list(&instance.id, Kind::Shaderpacks).await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].name, "BSL");
+
+    let disabled = mods::set_enabled(&instance.id, Kind::Resourcepacks, "Faithful", false)
+        .await
+        .unwrap();
+    assert_eq!(disabled, "Faithful.disabled");
+    let listed = mods::list(&instance.id, Kind::Resourcepacks).await.unwrap();
+    assert_eq!(listed[0].name, "Faithful", "the suffix is not part of the name");
+    assert!(!listed[0].enabled);
+
+    mods::delete(&instance.id, Kind::Resourcepacks, &disabled).await.unwrap();
+    assert!(!packs.join("Faithful.disabled").exists());
+    assert!(packs.join("old backup").exists(), "an unlisted folder is untouched");
+}

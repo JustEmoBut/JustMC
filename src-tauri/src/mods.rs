@@ -95,6 +95,9 @@ pub struct ModFile {
     /// The icon `fabric.mod.json` names, inlined as a `data:` URI. Read from
     /// the jar itself so an installed mod needs no network to show artwork.
     pub icon: Option<String>,
+    /// A pack unpacked into a folder rather than a zip. Deleting one is a
+    /// recursive delete, so the frontend asks first.
+    pub dir: bool,
 }
 
 /// A newer build Modrinth has for a jar already in the folder.
@@ -174,6 +177,28 @@ fn read_metadata(path: &std::path::Path, kind: Kind) -> Option<(String, String, 
         Kind::Mods => read_mod_metadata(path),
         _ => read_pack_metadata(path),
     }
+}
+
+/// A pack unpacked into a directory, which the game reads exactly like a zip.
+/// Recognised by what the game itself looks for -- `pack.mcmeta` for a resource
+/// pack, a `shaders` directory for a shader -- so an unrelated folder someone
+/// keeps in there is never listed, and never offered a recursive delete.
+fn read_dir_pack(path: &std::path::Path, kind: Kind) -> Option<(String, String, Option<String>)> {
+    let marker = if kind == Kind::Shaderpacks { "shaders" } else { "pack.mcmeta" };
+    if !path.join(marker).exists() {
+        return None;
+    }
+    let description = std::fs::read(path.join("pack.mcmeta"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|json| Some(json.pointer("/pack/description")?.as_str()?.to_string()))
+        .unwrap_or_default();
+    let icon = std::fs::read(path.join("pack.png"))
+        .ok()
+        .filter(|b| b.len() as u64 <= MAX_ICON)
+        .map(|b| format!("data:image/png;base64,{}", base64(&b)));
+    let name = path.file_name()?.to_string_lossy();
+    Some((name.trim_end_matches(DISABLED).to_string(), description, icon))
 }
 
 /// A resource pack states its name nowhere — the file name is the name — but
@@ -259,11 +284,11 @@ fn cached_jar(
     info
 }
 
-/// Everything in one of the instance's content folders, enabled or not.
-///
-/// ponytail: archives only. Minecraft also reads a resource pack unpacked into
-/// a directory; listing those means a recursive delete behind the trash button,
-/// so they stay invisible until someone asks.
+/// Everything in one of the instance's content folders, enabled or not --
+/// archives, plus the unpacked pack folders the game reads just the same. A
+/// folder has no jar to hash, so it carries no SHA-1 and Modrinth never claims
+/// it: it cannot be matched, updated or counted as installed, which is right,
+/// since nothing on Modrinth ships unpacked.
 pub async fn list(id: &str, kind: Kind) -> Result<Vec<ModFile>> {
     let dir = folder(id, kind).await?;
     let extension = kind.extension();
@@ -273,9 +298,25 @@ pub async fn list(id: &str, kind: Kind) -> Result<Vec<ModFile>> {
 
     let mut mods: Vec<ModFile> = entries
         .flatten()
-        .filter(|e| e.path().is_file())
         .filter_map(|e| {
             let file = e.file_name().to_string_lossy().into_owned();
+            // Only packs are read unpacked; a loader ignores an exploded jar.
+            if e.path().is_dir() {
+                if kind == Kind::Mods {
+                    return None;
+                }
+                let (name, version, icon) = read_dir_pack(&e.path(), kind)?;
+                return Some(ModFile {
+                    enabled: !file.ends_with(DISABLED),
+                    file,
+                    name,
+                    version,
+                    icon,
+                    size: 0,
+                    sha1: String::new(),
+                    dir: true,
+                });
+            }
             let enabled = file.ends_with(extension);
             if !enabled && !file.ends_with(&format!("{extension}{DISABLED}")) {
                 return None;
@@ -284,7 +325,7 @@ pub async fn list(id: &str, kind: Kind) -> Result<Vec<ModFile>> {
             let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
             let (name, version, icon, sha1) =
                 cached_jar(&e.path(), size, meta.and_then(|m| m.modified().ok()), kind);
-            Some(ModFile { file, name, version, icon, enabled, size, sha1 })
+            Some(ModFile { file, name, version, icon, enabled, size, sha1, dir: false })
         })
         .collect();
 
@@ -309,7 +350,12 @@ pub async fn set_enabled(id: &str, kind: Kind, file: &str, enabled: bool) -> Res
 
 pub async fn delete(id: &str, kind: Kind, file: &str) -> Result<()> {
     let path = folder(id, kind).await?.join(checked_name(file)?);
-    tokio::fs::remove_file(path).await?;
+    // `checked_name` is what keeps this recursive delete inside the folder.
+    if path.is_dir() {
+        tokio::fs::remove_dir_all(path).await?;
+    } else {
+        tokio::fs::remove_file(path).await?;
+    }
     Ok(())
 }
 

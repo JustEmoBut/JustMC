@@ -111,6 +111,8 @@ export interface ModFile {
   size: number;
   /** Icon from the jar's fabric.mod.json as a data: URI, when it ships one. */
   icon: string | null;
+  /** A pack unpacked into a folder; deleting one removes a whole tree. */
+  dir: boolean;
 }
 
 export interface ModHit {
