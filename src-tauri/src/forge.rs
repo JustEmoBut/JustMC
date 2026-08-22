@@ -59,17 +59,35 @@ const PROFILE_NAME: &str = "install_profile.json";
 
 // ------------------------------------------------------------------ versions
 
-/// The NeoForge build numbers for a Minecraft version: `1.21.1` is served by
-/// `21.1.x`, `1.21` by `21.0.x`. The mapping is the project's own scheme, not
-/// a guess — there is no per-version index to ask.
+/// The NeoForge build numbers for a Minecraft version. There is no per-version
+/// index to ask: the version is encoded in the build number, and Minecraft
+/// changed how it numbers itself in 2026.
+///
+/// Under the old `1.x` scheme, `1.21.1` is served by `21.1.<build>` and `1.21`
+/// by `21.0.<build>` — the leading `1.` is dropped and a missing patch is
+/// zero. Under the new one the whole version is kept and padded to three
+/// parts: `26.2` is served by `26.2.0.<build>`, `26.1.2` by `26.1.2.<build>`.
+/// Both were read off real installers' `minecraft` field.
 fn neo_prefix(mc: &str) -> Option<String> {
-    let mut parts = mc.strip_prefix("1.")?.split('.');
-    let major = parts.next()?;
-    let minor = parts.next().unwrap_or("0");
-    if !major.chars().all(|c| c.is_ascii_digit()) || !minor.chars().all(|c| c.is_ascii_digit()) {
-        return None; // a snapshot; NeoForge does not publish for those
+    // The old scheme's `1.` is a constant, not a major version, so what is
+    // left is two parts; the new scheme keeps all three.
+    let (rest, wanted) = match mc.strip_prefix("1.") {
+        Some(rest) => (rest, 2),
+        None => (mc, 3),
+    };
+    let mut parts: Vec<&str> = rest.split('.').collect();
+    // A snapshot ("26.3-snapshot-9", "24w14a") is not a version NeoForge
+    // publishes for, and neither is anything with more parts than the scheme.
+    if parts.len() > wanted || parts.iter().any(|p| !p.chars().all(|c| c.is_ascii_digit())) {
+        return None;
     }
-    Some(format!("{major}.{minor}."))
+    if parts.iter().any(|p| p.is_empty()) {
+        return None;
+    }
+    while parts.len() < wanted {
+        parts.push("0");
+    }
+    Some(format!("{}.", parts.join(".")))
 }
 
 /// Compare two dotted build numbers numerically, so `21.1.9` sorts below
@@ -548,12 +566,21 @@ mod tests {
 
     #[test]
     fn neoforge_build_numbers_follow_the_minecraft_version() {
+        // The old `1.x` scheme: the leading 1 is dropped.
         assert_eq!(neo_prefix("1.21.1").as_deref(), Some("21.1."));
         assert_eq!(neo_prefix("1.21").as_deref(), Some("21.0."));
         assert_eq!(neo_prefix("1.20.4").as_deref(), Some("20.4."));
+        // The 2026 scheme: the whole version, padded to three parts. Taken
+        // from the installers themselves -- neoforge-26.2.0.64 says its
+        // Minecraft is "26.2".
+        assert_eq!(neo_prefix("26.2").as_deref(), Some("26.2.0."));
+        assert_eq!(neo_prefix("26.1.2").as_deref(), Some("26.1.2."));
+        assert_eq!(neo_prefix("26.1").as_deref(), Some("26.1.0."));
         // Snapshots and anything unparseable have no NeoForge at all.
         assert_eq!(neo_prefix("24w14a"), None);
+        assert_eq!(neo_prefix("26.3-snapshot-9"), None);
         assert_eq!(neo_prefix("1.21.1-pre1"), None);
+        assert_eq!(neo_prefix("1.21.1.2"), None, "too many parts for the old scheme");
     }
 
     #[test]

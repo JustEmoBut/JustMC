@@ -438,3 +438,29 @@ async fn forge_installs_and_puts_its_patched_jar_on_the_classpath() {
     assert!(leftover.is_empty(), "unexpanded placeholders: {leftover:?}");
     assert!(args.iter().any(|a| a == "forge_client"), "the FML launch target is missing");
 }
+
+/// Every loader must have builds for the Minecraft version the launcher offers
+/// by default. NeoForge encodes the game version in its build number, and
+/// Minecraft changed how it numbers itself in 2026 ("1.21.1" then, "26.2"
+/// now) — which silently emptied the picker until the mapping was taught the
+/// new scheme. This is the guard for the next time it changes.
+#[tokio::test]
+#[ignore = "network"]
+async fn the_newest_minecraft_release_has_builds_for_every_loader() {
+    use justlauncher_lib::loader;
+
+    let latest = justlauncher_lib::mojang::manifest().await.unwrap().latest.release;
+    assert!(!latest.is_empty());
+
+    for l in [Loader::Fabric, Loader::Quilt, Loader::Forge, Loader::NeoForge] {
+        let builds = loader::builds(l, &latest).await.unwrap();
+        assert!(!builds.is_empty(), "{} has no builds for Minecraft {latest}", l.label());
+        // Exactly one build is offered as the default.
+        assert_eq!(
+            builds.iter().filter(|b| b.stable).count(),
+            if l == Loader::Quilt { 0 } else { 1 },
+            "{} recommends the wrong number of builds",
+            l.label()
+        );
+    }
+}

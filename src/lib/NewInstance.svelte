@@ -82,9 +82,11 @@
     if (!nameTouched) name = selected ? `Minecraft ${selected}` : "";
   });
 
-  // Neither loader covers every Minecraft version, and its meta server is the
-  // only authority on which. Ask before letting the user create an instance
-  // that could only fail at install time.
+  // No loader covers every Minecraft version, and each project's own metadata
+  // is the authority on which. An empty answer is a warning, never a block:
+  // when Minecraft renumbered itself in 2026 the launcher briefly mapped
+  // NeoForge's build numbers wrong, and a hard block turned that into "you
+  // cannot create an instance at all".
   $effect(() => {
     const version = selected;
     const chosen = loader;
@@ -295,7 +297,8 @@
 
     {#if loader !== "vanilla" && loaderOk === false}
       <p class="warn">
-        {loaderName(loader)} has no loader for Minecraft {selected}. Pick another version.
+        {loaderName(loader)} lists no build for Minecraft {selected}. You can still create
+        this instance, but it will not install until one exists.
       </p>
     {:else if loader !== "vanilla" && loaderOk === "unknown"}
       <p class="warn">Could not reach the {loaderName(loader)} meta server; support is unverified.</p>
@@ -331,7 +334,7 @@
         class="primary"
         onclick={create}
         disabled={busy || loading || !name.trim() ||
-          (loader !== "vanilla" && (loaderOk === null || loaderOk === false))}
+          (loader !== "vanilla" && loaderOk === null)}
       >
         {busy ? "Creating…" : "Create"}
       </button>
