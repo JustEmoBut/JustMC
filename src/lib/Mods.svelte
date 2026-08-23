@@ -89,6 +89,8 @@
   let selection = $state<Set<string>>(new Set());
   /** Modrinth project ids already in the folder, resolved by hash. */
   let installedIds = $state<Set<string>>(new Set());
+  /** Filters the folder listing; local only, nothing is re-read. */
+  let filter = $state("");
 
   // Browse
   let query = $state("");
@@ -112,6 +114,15 @@
     hideInstalled ? hits.filter((h) => !installedIds.has(h.project_id)) : hits
   );
   const updateFor = $derived(new Map(updates.map((u) => [u.file, u])));
+
+  // The file name is matched too: a hand-built jar often has no name of its own.
+  const shownMods = $derived.by(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return mods;
+    return mods.filter(
+      (m) => m.name.toLowerCase().includes(q) || m.file.toLowerCase().includes(q)
+    );
+  });
 
   $effect(() => {
     changed;
@@ -160,6 +171,7 @@
   });
 
   async function refresh() {
+    filter = "";
     try {
       mods = await api.listMods(instance.id, kind);
       selection = new Set([...selection].filter((f) => mods.some((m) => m.file === f)));
@@ -456,8 +468,23 @@
       </div>
     {/if}
 
+    {#if mods.length}
+      <div class="filters">
+        <input
+          class="query"
+          type="search"
+          bind:value={filter}
+          aria-label="Filter installed {noun(2)}"
+          placeholder="Filter installed {noun(2)}"
+        />
+        {#if filter.trim()}
+          <span class="faint data">{shownMods.length} of {mods.length}</span>
+        {/if}
+      </div>
+    {/if}
+
     <ul class="installed">
-      {#each mods as mod (mod.file)}
+      {#each shownMods as mod (mod.file)}
         {@const update = updateFor.get(mod.file)}
         <li class:off={!mod.enabled} class:picked={selection.has(mod.file)}>
           <input
@@ -505,8 +532,12 @@
         </li>
       {:else}
         <li class="empty faint">
-          No {noun(2)} yet. Browse Modrinth, or drop a
-          {kind === "mods" ? ".jar" : ".zip"} on this window.
+          {#if mods.length}
+            Nothing matches “{filter.trim()}”.
+          {:else}
+            No {noun(2)} yet. Browse Modrinth, or drop a
+            {kind === "mods" ? ".jar" : ".zip"} on this window.
+          {/if}
         </li>
       {/each}
     </ul>

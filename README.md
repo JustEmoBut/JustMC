@@ -32,9 +32,9 @@ Chromium is bundled.
 - Every asset layout Minecraft has used, including the named-file trees that
   1.7.2 and older need
 - Mod management for Fabric instances, and resource packs and shaders for any
-  instance: list, enable, disable, delete, drop a file on the window, and check
-  what is installed for newer builds; a pack unpacked into a folder is listed
-  like a zip
+  instance: list, filter by name or file name, enable, disable, delete, drop a
+  file on the window, and check what is installed for newer builds; a pack
+  unpacked into a folder is listed like a zip
 - Browse Modrinth from inside the launcher — mods, resource packs and shaders:
   sort by relevance, downloads, followers or date, filter by category, hide what
   is already installed, read a project and install any version of it, with its
