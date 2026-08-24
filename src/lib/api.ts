@@ -44,6 +44,9 @@ export interface Instance {
   memory_mb: number;
   java_path: string;
   jvm_args: string;
+  /** Window size the game opens at; 0 leaves it to the game's own settings. */
+  window_width: number;
+  window_height: number;
   /** Shell command run before the game starts; a non-zero exit cancels it. */
   pre_launch: string;
   /** Shell command run after the game exits. */
@@ -118,6 +121,18 @@ export interface World {
   size: number;
   /** Unix seconds, from level.dat's modification time. */
   last_played: number;
+}
+
+/** What a sweep of the shared store would remove, or did. */
+export interface StorageReport {
+  /** Version directories no instance launches. */
+  versions: { name: string; size: number }[];
+  /** Downloaded Java runtimes no kept version asks for. */
+  runtimes: { name: string; size: number }[];
+  /** Asset objects and index files, counted rather than listed. */
+  asset_files: number;
+  asset_bytes: number;
+  total: number;
 }
 
 /** A zip in the exports folder that a world backup wrote. */
@@ -285,6 +300,11 @@ export const api = {
   listWorldBackups: (id: string) => invoke<WorldBackup[]>("list_world_backups", { id }),
   /** Replaces the world the backup came from; returns its folder name. */
   restoreWorld: (id: string, file: string) => invoke<string>("restore_world", { id, file }),
+
+  /** What the shared store holds that nothing needs. Deletes nothing. */
+  scanStorage: () => invoke<StorageReport>("scan_storage"),
+  /** Sweeps it, and reports what went. */
+  cleanStorage: () => invoke<StorageReport>("clean_storage"),
 
   /** The game's own options.txt, as text; empty when it has none yet. */
   readOptions: (id: string) => invoke<string>("read_options", { id }),

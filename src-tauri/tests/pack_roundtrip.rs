@@ -36,6 +36,8 @@ fn sample() -> Instance {
         memory_mb: 6144,
         java_path: String::new(),
         jvm_args: "-XX:+UseG1GC".into(),
+        window_width: 0,
+        window_height: 0,
         pre_launch: String::new(),
         post_exit: String::new(),
         last_played: 1_700_000_000,
@@ -478,4 +480,87 @@ async fn launch_hooks_run_through_the_shell_and_report_failure() {
     let (ok, out) = justlauncher_lib::launch::run_hook("exit 3", &instance).await;
     assert!(!ok, "a non-zero exit has to cancel the launch");
     assert!(out.contains("Exited"), "{out}");
+}
+
+/// The shared store sweep: what an instance still points at survives, what
+/// nothing points at is reported, and a scan changes nothing on disk.
+#[tokio::test]
+async fn the_shared_store_sweep_keeps_what_an_instance_points_at() {
+    use justlauncher_lib::cleanup;
+    let (home, _guard) = scratch_home();
+    // `paths` is private to the crate, and the layout under the home directory
+    // is exactly what this test is checking.
+    let versions = home.join("shared/versions");
+    let assets = home.join("shared/assets");
+    let java_dir = home.join("shared/java");
+    let mut instance = sample();
+    instance.loader = Loader::Vanilla;
+    instance.save().await.unwrap();
+
+    // The version the instance launches, naming an asset index and a runtime.
+    let version = |id: &str, index: &str, java: &str| {
+        let dir = versions.join(id);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(format!("{id}.json")),
+            format!(
+                r#"{{"id":"{id}","mainClass":"m","assetIndex":{{"id":"{index}","url":"u","sha1":"s","size":1}},"javaVersion":{{"component":"{java}","majorVersion":21}}}}"#
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join(format!("{id}.jar")), vec![0u8; 1024]).unwrap();
+    };
+    version(&instance.mc_version, "17", "java-runtime-delta");
+    version("1.7.10", "legacy", "jre-legacy");
+
+    // One object each index names, plus one nothing names at all.
+    let object = |hash: &str| {
+        let dir = assets.join("objects").join(&hash[..2]);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(hash), vec![1u8; 512]).unwrap();
+    };
+    let index = |id: &str, hash: &str| {
+        let dir = assets.join("indexes");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(format!("{id}.json")),
+            format!(r#"{{"objects":{{"icons/icon.png":{{"hash":"{hash}","size":512}}}}}}"#),
+        )
+        .unwrap();
+    };
+    object("aa11223344556677889900aabbccddeeff001122");
+    object("bb11223344556677889900aabbccddeeff001122");
+    object("cc11223344556677889900aabbccddeeff001122");
+    index("17", "aa11223344556677889900aabbccddeeff001122");
+    index("legacy", "bb11223344556677889900aabbccddeeff001122");
+
+    let runtime = |component: &str| {
+        let dir = java_dir.join("windows-x64").join(component);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("java"), vec![2u8; 256]).unwrap();
+    };
+    runtime("java-runtime-delta");
+    runtime("jre-legacy");
+
+    let report = cleanup::scan().await.unwrap();
+    let names: Vec<&str> = report.versions.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, vec!["1.7.10"], "only the version nothing launches");
+    let runtimes: Vec<&str> = report.runtimes.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(runtimes, vec!["jre-legacy"], "the kept version's runtime stays");
+    // The unnamed object, plus the index generation that went with 1.7.10.
+    assert_eq!(report.asset_files, 3, "one stray object, one index, its object");
+    assert!(report.total > 0);
+    assert!(versions.join("1.7.10").is_dir(), "a scan deletes nothing");
+
+    cleanup::clean().await.unwrap();
+    assert!(!versions.join("1.7.10").exists());
+    assert!(versions.join(&instance.mc_version).is_dir());
+    assert!(!assets.join("indexes/legacy.json").exists());
+    assert!(assets.join("indexes/17.json").is_file());
+    let kept = assets.join("objects/aa/aa11223344556677889900aabbccddeeff001122");
+    assert!(kept.is_file(), "an object a kept index names must survive");
+    let gone = assets.join("objects/cc/cc11223344556677889900aabbccddeeff001122");
+    assert!(!gone.exists(), "an object nothing names must go");
+    assert!(java_dir.join("windows-x64/java-runtime-delta").is_dir());
+    assert!(!java_dir.join("windows-x64/jre-legacy").exists());
 }

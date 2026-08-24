@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { api, errorMessage, type JavaInstall, type Settings } from "./api";
+  import { api, errorMessage, type JavaInstall, type Settings, type StorageReport } from "./api";
   import Modal from "./Modal.svelte";
   import { notify } from "./toast.svelte";
 
@@ -30,6 +30,54 @@
   $effect(() => {
     if (draft.memory_mb > memoryMax) draft.memory_mb = memoryMax;
   });
+
+  /** Null until a scan has run: nothing is claimed about the store before. */
+  let storage = $state<StorageReport | null>(null);
+  let sweeping = $state(false);
+  let swept = $state(false);
+
+  async function scan() {
+    sweeping = true;
+    try {
+      storage = await api.scanStorage();
+      swept = false;
+    } catch (e) {
+      notify(errorMessage(e), "error");
+    }
+    sweeping = false;
+  }
+
+  async function clean() {
+    sweeping = true;
+    try {
+      const gone = await api.cleanStorage();
+      notify(`Freed ${size(gone.total)}.`);
+      storage = gone;
+      swept = true;
+    } catch (e) {
+      notify(errorMessage(e), "error");
+    }
+    sweeping = false;
+  }
+
+  function size(bytes: number) {
+    const mb = bytes / 1024 / 1024;
+    if (mb < 1) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    return mb < 1024 ? `${Math.round(mb)} MB` : `${(mb / 1024).toFixed(1)} GB`;
+  }
+
+  /** What the sweep found, as the one line the button needs. */
+  const found = $derived(
+    !storage
+      ? ""
+      : [
+          storage.versions.length && `${storage.versions.length} versions`,
+          storage.asset_files && `${storage.asset_files.toLocaleString()} asset files`,
+          storage.runtimes.length && `${storage.runtimes.length} Java runtimes`,
+        ]
+          .filter(Boolean)
+          .join(", "),
+  );
 
   async function save() {
     try {
@@ -85,7 +133,7 @@
     <input id="g-args" bind:value={draft.jvm_args} placeholder="-XX:+UseG1GC" spellcheck="false" />
   </div>
 
-  <div class="field window">
+  <div class="field section">
     <label for="g-minimise">While a game is running</label>
     <label class="check">
       <input id="g-minimise" type="checkbox" bind:checked={draft.minimise_on_play} />
@@ -95,6 +143,30 @@
       Restored when the game exits. The window is minimised rather than hidden,
       so it stays in the taskbar if the game never reports an exit.
     </p>
+  </div>
+
+  <div class="field section">
+    <label for="g-storage">Shared storage</label>
+    <p class="faint">
+      Versions, assets and Java runtimes are shared between instances and
+      nothing removes them: a deleted instance leaves its download behind. Mod
+      files and worlds are never touched by this.
+    </p>
+    <div class="storage">
+      <button id="g-storage" onclick={scan} disabled={sweeping}>
+        {sweeping ? "Working…" : "Scan"}
+      </button>
+      {#if storage}
+        {#if storage.total === 0}
+          <span class="muted">Nothing to remove.</span>
+        {:else if swept}
+          <span class="muted">Freed {size(storage.total)}.</span>
+        {:else}
+          <span class="muted">{size(storage.total)} — {found}</span>
+          <button class="primary" onclick={clean} disabled={sweeping}>Delete</button>
+        {/if}
+      {/if}
+    </div>
   </div>
 
   {#snippet footer()}
@@ -122,7 +194,21 @@
     line-height: 1.5;
   }
 
-  .window {
+  .storage {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .storage .muted {
+    font-size: 12px;
+  }
+
+  /* Each of these is its own subject, not another default for a new
+     instance, so a rule separates them from the fields above. */
+  .section {
     margin-top: 18px;
     padding-top: 14px;
     border-top: 1px solid var(--border);

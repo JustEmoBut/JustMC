@@ -60,6 +60,16 @@ the code there is C++/Qt and gets rethought for this stack, not ported.
   Options panel edits `.minecraft/options.txt` as text, which is what the file
   is; it is refused while the game runs, since the client rewrites it on exit.
 
+- **Offline launching, a window size, and a shared-store sweep.** The version
+  manifest and the Fabric/Quilt profile were the last two requests on the
+  launch path with no cache; both have one now, so an installed instance starts
+  with no connection. An instance can name the window size the game opens at
+  (`--width`/`--height`, which the metadata gates behind a feature rule the
+  launcher has to supply itself). `cleanup.rs` reports and removes the
+  versions, asset generations and Java runtimes nothing points at any more —
+  `libraries/` deliberately excluded, since a Forge output there is not
+  distinguishable from an unused download.
+
 ## 1. Skin management
 
 Upload and select skins and capes against

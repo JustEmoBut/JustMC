@@ -192,6 +192,32 @@
   </div>
 
   <div class="field">
+    <label for="s-width">Window size</label>
+    <div class="pair">
+      <input
+        id="s-width"
+        type="number"
+        min="0"
+        placeholder="Width"
+        bind:value={draft.window_width}
+      />
+      <span class="muted">×</span>
+      <input
+        id="s-height"
+        type="number"
+        min="0"
+        placeholder="Height"
+        bind:value={draft.window_height}
+      />
+    </div>
+    <p class="faint">
+      Left empty the game opens at whatever size it last remembered. Set both to
+      open at a fixed size — useful for recording, or on a screen the default
+      window is lost on.
+    </p>
+  </div>
+
+  <div class="field">
     <label for="s-pre">Before launch</label>
     <input id="s-pre" bind:value={draft.pre_launch} placeholder="backup.bat" spellcheck="false" />
     <p class="faint">
@@ -251,6 +277,13 @@
     background: transparent;
     border: none;
     accent-color: var(--accent);
+  }
+
+  /* Width × height on one line: two boxes and the sign between them. */
+  .pair {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .field p {

@@ -20,6 +20,7 @@ pub mod screenshots;
 pub mod servers;
 pub mod settings;
 pub mod worlds;
+pub mod cleanup;
 
 pub mod download;
 mod error;
@@ -264,6 +265,20 @@ async fn restore_world(id: String, file: String) -> Result<String> {
 #[tauri::command]
 async fn delete_world(id: String, folder: String) -> Result<()> {
     worlds::delete(&id, &folder).await
+}
+
+// ------------------------------------------------------------------ storage
+
+/// What the shared store holds that no instance needs. Reports only.
+#[tauri::command]
+async fn scan_storage() -> Result<cleanup::Report> {
+    cleanup::scan().await
+}
+
+/// Sweep it, and report what went. The UI confirms first; this does not.
+#[tauri::command]
+async fn clean_storage() -> Result<cleanup::Report> {
+    cleanup::clean().await
 }
 
 // ------------------------------------------------------------------ options
@@ -703,6 +718,8 @@ pub fn run() {
             delete_world,
             read_options,
             write_options,
+            scan_storage,
+            clean_storage,
             list_logs,
             read_log,
             list_mods,

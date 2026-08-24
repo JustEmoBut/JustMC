@@ -61,6 +61,10 @@ Chromium is bundled.
   unpacks straight back into `saves`, or delete it
 - Restore a world from any backup taken of it, replacing the save rather than
   merging into it
+- Launch with no connection: everything the launch path reads is cached, and
+  the version manifest falls back to its last copy
+- A per-instance window size, and a sweep that reports and removes the shared
+  versions, assets and Java runtimes no instance needs any more
 - Edit the game's own `options.txt` from the launcher, without starting the game
 - Browse an instance's screenshots and delete the ones not worth keeping
 - The instance's multiplayer server list, read from and written to the game's

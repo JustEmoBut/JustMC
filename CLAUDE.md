@@ -136,6 +136,22 @@ A missing permission rejects the promise rather than erroring visibly, so any
 new `getCurrentWindow()` call needs both an entry in
 `capabilities/default.json` and a `.catch` that reports.
 
+**Everything on the launch path is cached, so an installed instance launches
+offline.** `version_json`, `asset_index` and Forge's profile were already
+cache-first; `loader::profile` now is too, writing under the same version id
+the instance launches. `mojang::manifest` is the exception that has to try the
+network first — a new release has to appear in the picker — so it writes
+`shared/versions/version_manifest.json` and falls back to it when the request
+fails. That one request was the only thing standing between a fully installed
+instance and playing with no connection.
+
+**A window size is a placeholder pair *and* a flag pair.** `${resolution_width}`
+expands from `window_width`/`window_height` (0 meaning "leave it to the game",
+which is what options.txt already remembers), but the `--width`/`--height`
+arguments that carry it sit behind a `has_custom_resolution` feature rule that
+`rules_allow` never matches — so `build_command` pushes the flags itself, the
+same arrangement Quick Play needs.
+
 ### Mojang metadata (`mojang.rs`)
 
 The messiest domain, because Minecraft's format changed repeatedly:
@@ -255,6 +271,28 @@ between loaders (an instance here has one `loader` field, so two cannot be
 installed at once) and a legacy FML libraries step for Forge older than 1.6,
 which is well below the 1.13 floor. Its fifth loader, LiteLoader, stopped at
 1.12.2 in 2017 and is not worth a module.
+
+### Sweeping the shared store (`cleanup.rs`)
+
+Nothing ever deleted from `shared/`: a removed instance left its version, its
+assets and possibly a whole JRE behind, and each new asset index generation
+stacked on the last. `scan` derives what is *used* from the instances and the
+version JSONs they name — never from a record of what was downloaded, which is
+what keeps the answer right for an instance copied in by hand — and `clean`
+works the same sets out again rather than trusting a path list from a dialog
+that may have been open while an instance was created.
+
+Kept is: the version an instance launches *and* the vanilla version it
+inherits from, the asset index each of those declares, every object that index
+names, and the Java component they ask for. A version JSON or an index that
+will not parse stops that half of the sweep instead of being read as "uses
+nothing".
+
+**`libraries/` is deliberately untouched.** Forge's patched client jar lives
+there as an output rather than a download, and NeoForge's is found by path
+instead of by classpath entry, so "unreferenced" there does not mean "unused"
+and a wrong answer costs a several-minute rebuild. Versions, assets and
+runtimes are where the gigabytes are anyway.
 
 ### Instance archives (`pack.rs`, `mrpack.rs`)
 

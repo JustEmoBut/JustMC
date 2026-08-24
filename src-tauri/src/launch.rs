@@ -232,8 +232,14 @@ pub fn build_command(
     );
     vars.insert("version_type", version.kind.clone());
     vars.insert("user_properties", "{}".into());
-    vars.insert("resolution_width", "854".into());
-    vars.insert("resolution_height", "480".into());
+    // Mojang's own defaults, and what the placeholders expand to when the
+    // instance names no size of its own.
+    let (width, height) = match (instance.window_width, instance.window_height) {
+        (w, h) if w > 0 && h > 0 => (w, h),
+        _ => (854, 480),
+    };
+    vars.insert("resolution_width", width.to_string());
+    vars.insert("resolution_height", height.to_string());
 
     let mut cmd = vec![
         format!("-Xmx{}M", instance.memory_mb),
@@ -265,6 +271,17 @@ pub fn build_command(
             cmd.extend(legacy.split_whitespace().map(|s| substitute(s, &vars)))
         }
         (None, None) => return Err(Error::msg("Version metadata has no game arguments.")),
+    }
+
+    // `--width`/`--height` sit behind a `has_custom_resolution` feature rule
+    // that `rules_allow` never matches, so the launcher passes them itself --
+    // the same arrangement Quick Play needs. The flags predate the rule and
+    // every version this launcher runs understands them.
+    if instance.window_width > 0 && instance.window_height > 0 {
+        cmd.push("--width".into());
+        cmd.push(width.to_string());
+        cmd.push("--height".into());
+        cmd.push(height.to_string());
     }
 
     if let Some(quick) = quick_play {
@@ -577,6 +594,39 @@ mod tests {
             value: crate::mojang::StringOrList::One("--quickPlayMultiplayer".into()),
         });
         assert!(supports_quick_play(&version));
+    }
+
+    /// The window size is both a placeholder pair and a flag pair: modern
+    /// metadata expands `${resolution_width}` behind a feature rule that never
+    /// matches, so the flags have to be pushed here or the setting does
+    /// nothing.
+    #[test]
+    fn a_window_size_reaches_the_command_line_only_when_it_is_set() {
+        let mut version = VersionJson::default();
+        version.main_class = "net.minecraft.client.main.Main".into();
+        version.minecraft_arguments = Some("--width ${resolution_width}".into());
+        let account = Account {
+            id: "id".into(),
+            name: "Notch".into(),
+            kind: AccountKind::Offline,
+            access_token: String::new(),
+            refresh_token: String::new(),
+            expires_at: 0,
+            xuid: String::new(),
+        };
+        let mut instance = crate::instance::tests::sample();
+
+        let args = build_command(&version, &instance, &account, &[], Path::new("n"), None).unwrap();
+        assert!(!args.contains(&"--height".to_string()), "{args:?}");
+        // Unset still expands the placeholder: Mojang's own default, not "0".
+        assert!(args.contains(&"854".to_string()), "{args:?}");
+
+        instance.window_width = 1920;
+        instance.window_height = 1080;
+        let args = build_command(&version, &instance, &account, &[], Path::new("n"), None).unwrap();
+        let flag = args.iter().position(|a| a == "--height").expect("no --height");
+        assert_eq!(args[flag + 1], "1080");
+        assert!(args.contains(&"1920".to_string()), "{args:?}");
     }
 
     #[test]

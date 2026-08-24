@@ -312,8 +312,33 @@ impl Library {
 
 // -------------------------------------------------------------------- fetching
 
+/// The version manifest, cached beside the version store.
+///
+/// Network first, because a new release has to show up in the picker, but the
+/// cached copy is what makes an already-installed instance launch with no
+/// connection at all: every other file on the launch path is either on disk or
+/// cached, and this one request was the only thing failing.
+///
+// ponytail: an offline launch still waits out the retry ladder (~10 s) before
+// falling back. Cache-first with a freshness check if that ever annoys.
 pub async fn manifest() -> Result<Manifest> {
-    download::json(MANIFEST_URL).await
+    let path = paths::versions().join("version_manifest.json");
+    match download::text(MANIFEST_URL).await {
+        Ok(text) => {
+            let parsed: Manifest = serde_json::from_str(&text)?;
+            if let Some(parent) = path.parent() {
+                let _ = tokio::fs::create_dir_all(parent).await;
+            }
+            let _ = tokio::fs::write(&path, &text).await;
+            Ok(parsed)
+        }
+        Err(e) => match tokio::fs::read_to_string(&path).await {
+            Ok(text) => Ok(serde_json::from_str(&text)?),
+            // The network error is the useful one: with no cache there is
+            // nothing this launcher can do offline, and saying so is the help.
+            Err(_) => Err(e),
+        },
+    }
 }
 
 /// Fetch a version JSON, caching it under the shared version store.

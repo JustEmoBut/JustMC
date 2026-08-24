@@ -25,7 +25,7 @@ impl Loader {
     /// The prefix Fabric and Quilt use for the profile they publish, which is
     /// also the version id an instance launches. Forge names its own profiles
     /// differently, so `version_id` asks `forge::profile_id` instead.
-    fn profile_prefix(self) -> &'static str {
+    pub(crate) fn profile_prefix(self) -> &'static str {
         match self {
             Loader::Fabric => "fabric-loader",
             Loader::Quilt => "quilt-loader",
@@ -82,6 +82,12 @@ pub struct Instance {
     pub java_path: String,
     #[serde(default)]
     pub jvm_args: String,
+    /// Window size the game opens at. 0 means "leave it to the game", which is
+    /// what options.txt already remembers.
+    #[serde(default)]
+    pub window_width: u32,
+    #[serde(default)]
+    pub window_height: u32,
     /// Shell command run before the game starts; a non-zero exit cancels the
     /// launch. Empty means none.
     #[serde(default)]
@@ -225,6 +231,8 @@ pub async fn create(
         memory_mb: defaults.memory_mb,
         java_path: defaults.java_path,
         jvm_args: defaults.jvm_args,
+        window_width: 0,
+        window_height: 0,
         pre_launch: String::new(),
         post_exit: String::new(),
         last_played: 0,
@@ -277,8 +285,31 @@ pub async fn delete(id: &str) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// A plain instance for a test to bend into shape. Shared so a new field
+    /// does not have to be added to a literal in every test module.
+    pub(crate) fn sample() -> Instance {
+        Instance {
+            id: "x".into(),
+            name: "x".into(),
+            mc_version: "1.21".into(),
+            loader: Loader::Vanilla,
+            loader_version: String::new(),
+            memory_mb: 4096,
+            java_path: String::new(),
+            jvm_args: String::new(),
+            window_width: 0,
+            window_height: 0,
+            pre_launch: String::new(),
+            post_exit: String::new(),
+            last_played: 0,
+            play_time: 0,
+            count_play_time: true,
+            installed: false,
+        }
+    }
 
     #[test]
     fn slugify_strips_unsafe_characters() {
@@ -289,22 +320,7 @@ mod tests {
 
     #[test]
     fn version_id_reflects_loader() {
-        let mut i = Instance {
-            id: "x".into(),
-            name: "x".into(),
-            mc_version: "1.21".into(),
-            loader: Loader::Vanilla,
-            loader_version: String::new(),
-            memory_mb: 4096,
-            java_path: String::new(),
-            jvm_args: String::new(),
-            pre_launch: String::new(),
-            post_exit: String::new(),
-            last_played: 0,
-            play_time: 0,
-            count_play_time: true,
-            installed: false,
-        };
+        let mut i = sample();
         assert_eq!(i.version_id(), "1.21");
         i.loader = Loader::Quilt;
         i.loader_version = "0.24.0".into();

@@ -26,6 +26,7 @@ use crate::download;
 use crate::error::{Error, Result};
 use crate::instance::Loader;
 use crate::mojang::VersionJson;
+use crate::paths;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -114,9 +115,31 @@ pub async fn latest_loader(loader: Loader, mc_version: &str) -> Result<String> {
 }
 
 /// The loader's version profile, to be merged onto the vanilla version json.
+/// The profile for one loader build, cached in the shared version store.
+///
+/// Cache first, unlike the manifest: a published profile for a pinned build
+/// never changes, and this request was the last thing standing between an
+/// installed Fabric or Quilt instance and launching with no connection. The
+/// file lands where the vanilla version json and Forge's profile already do,
+/// under the id the instance launches.
 pub async fn profile(loader: Loader, mc_version: &str, loader_version: &str) -> Result<VersionJson> {
+    let id = format!("{}-{loader_version}-{mc_version}", loader.profile_prefix());
+    let path = paths::versions().join(&id).join(format!("{id}.json"));
+    if let Ok(text) = tokio::fs::read_to_string(&path).await {
+        if let Ok(parsed) = serde_json::from_str(&text) {
+            return Ok(parsed);
+        }
+    }
+
     let (meta, _) = meta(loader);
-    download::json(&format!("{meta}/loader/{mc_version}/{loader_version}/profile/json")).await
+    let text =
+        download::text(&format!("{meta}/loader/{mc_version}/{loader_version}/profile/json")).await?;
+    let parsed: VersionJson = serde_json::from_str(&text)?;
+    if let Some(parent) = path.parent() {
+        let _ = tokio::fs::create_dir_all(parent).await;
+    }
+    let _ = tokio::fs::write(&path, &text).await;
+    Ok(parsed)
 }
 
 #[cfg(test)]
