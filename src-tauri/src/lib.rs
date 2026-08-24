@@ -251,8 +251,43 @@ async fn backup_world(id: String, folder: String) -> Result<String> {
 }
 
 #[tauri::command]
+async fn list_world_backups(id: String) -> Result<Vec<worlds::Backup>> {
+    worlds::backups(&id).await
+}
+
+/// Returns the world folder that was restored, for the message.
+#[tauri::command]
+async fn restore_world(id: String, file: String) -> Result<String> {
+    worlds::restore(&id, &file).await
+}
+
+#[tauri::command]
 async fn delete_world(id: String, folder: String) -> Result<()> {
     worlds::delete(&id, &folder).await
+}
+
+// ------------------------------------------------------------------ options
+
+/// The game's own settings file. Line-based `key:value`, so it is edited as
+/// text -- a form per key would have to know all ~150 of them, and the game
+/// adds more every version.
+///
+/// Missing is empty rather than an error: an instance that has never been
+/// launched has no options.txt yet, and writing one is how it gets its first.
+#[tauri::command]
+async fn read_options(id: String) -> Result<String> {
+    let path = instance::get(&id).await?.game_dir().join("options.txt");
+    Ok(tokio::fs::read_to_string(path).await.unwrap_or_default())
+}
+
+/// The game rewrites this file wholesale when it exits, so the UI refuses
+/// while it runs -- exactly as it does for worlds and the server list.
+#[tauri::command]
+async fn write_options(id: String, text: String) -> Result<()> {
+    let dir = instance::get(&id).await?.game_dir();
+    tokio::fs::create_dir_all(&dir).await?;
+    tokio::fs::write(dir.join("options.txt"), text).await?;
+    Ok(())
 }
 
 // ------------------------------------------------------------------ servers
@@ -663,7 +698,11 @@ pub fn run() {
             ping_server,
             list_worlds,
             backup_world,
+            list_world_backups,
+            restore_world,
             delete_world,
+            read_options,
+            write_options,
             list_logs,
             read_log,
             list_mods,

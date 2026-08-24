@@ -281,6 +281,52 @@ pub fn build_command(
     Ok(cmd)
 }
 
+/// Run a user-supplied hook through the system shell and collect its output.
+///
+/// The shell is the point: a hook is written the way the user would type it in
+/// a terminal, quoting and `&&` included, and splitting the string here would
+/// only be a worse shell. It runs in the game directory with the instance
+/// described in the environment, which is how a script knows what it was
+/// called for.
+///
+/// Never `Err`: a hook that could not start is a failed hook, and the caller
+/// decides what that costs.
+///
+// ponytail: no timeout, so a hook that never exits wedges the launch with the
+// instance claimed. Add one if a real hook ever hangs.
+/// Public only so `pack_roundtrip` can exercise it against a scratch home: the
+/// data directory is a process-wide env var, and the lib's own test binary has
+/// no lock to take.
+pub async fn run_hook(command: &str, instance: &Instance) -> (bool, String) {
+    let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
+    let mut cmd = tokio::process::Command::new(shell);
+    cmd.arg(flag)
+        .arg(command)
+        .current_dir(instance.game_dir())
+        .env("INST_ID", &instance.id)
+        .env("INST_NAME", &instance.name)
+        .env("INST_DIR", instance.dir())
+        .env("INST_MC_DIR", instance.game_dir())
+        .env("INST_MC_VERSION", &instance.mc_version)
+        .stdin(Stdio::null());
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+
+    match cmd.output().await {
+        Ok(out) => {
+            let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+            text.push_str(&String::from_utf8_lossy(&out.stderr));
+            if !out.status.success() {
+                text.push_str(&format!("Exited with {}.
+", out.status));
+            }
+            (out.status.success(), text)
+        }
+        Err(e) => (false, format!("Could not run {shell}: {e}
+")),
+    }
+}
+
 /// Forward one output stream of the game process to the UI, line by line.
 async fn pump_log<R>(
     reader: Option<R>,
@@ -381,6 +427,21 @@ pub async fn launch(
 ", args.join(" ")).as_bytes())
         .await;
 
+    if !instance.pre_launch.is_empty() {
+        let _ = log.write_all(b"Pre-launch command
+").await;
+        let (ok, output) = run_hook(&instance.pre_launch, &instance).await;
+        let _ = log.write_all(output.as_bytes()).await;
+        let _ = log.flush().await;
+        if !ok {
+            return Err(Error::msg(format!(
+                "The pre-launch command failed, so the game was not started.
+{}",
+                output.trim()
+            )));
+        }
+    }
+
     let mut command = tokio::process::Command::new(&java_bin);
     command
         .args(&args)
@@ -434,6 +495,15 @@ pub async fn launch(
             }
         }
         let code = child.wait().await.ok().and_then(|s| s.code()).unwrap_or(-1);
+
+        if !instance.post_exit.is_empty() {
+            let (_, output) = run_hook(&instance.post_exit, &instance).await;
+            let mut file = log_file.lock().await;
+            let _ = file.write_all(b"Post-exit command
+").await;
+            let _ = file.write_all(output.as_bytes()).await;
+            let _ = file.flush().await;
+        }
 
         // Re-read rather than reusing the copy captured at launch: the settings
         // dialog may have written the file while the game was running.

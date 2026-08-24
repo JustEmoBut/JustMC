@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, errorMessage, type Instance, type World } from "./api";
+  import { api, errorMessage, type Instance, type World, type WorldBackup } from "./api";
   import Icon from "./Icon.svelte";
   import Modal from "./Modal.svelte";
   import { notify } from "./toast.svelte";
@@ -43,15 +43,19 @@
   }
 
   let worlds = $state<World[]>([]);
+  let backups = $state<WorldBackup[]>([]);
   let loading = $state(true);
   let busy = $state("");
   /** Folder of the world whose delete button is armed; only ever one. */
   let confirming = $state("");
+  /** Archive whose restore is armed. Restoring replaces a world, so it asks. */
+  let confirmingRestore = $state("");
 
   async function refresh() {
     loading = true;
     try {
       worlds = await api.listWorlds(instance.id);
+      backups = await api.listWorldBackups(instance.id);
     } catch (e) {
       notify(errorMessage(e), "error");
     }
@@ -67,6 +71,9 @@
     try {
       await api.backupWorld(instance.id, world.folder);
       notify(`Backed up ${world.name}.`);
+      // The list below is read from the exports folder, so a new backup only
+      // appears if it is read again.
+      await refresh();
       await api.openExportsFolder();
     } catch (e) {
       notify(errorMessage(e), "error");
@@ -80,6 +87,19 @@
     try {
       await api.deleteWorld(instance.id, world.folder);
       notify(`Deleted ${world.name}.`);
+      await refresh();
+    } catch (e) {
+      notify(errorMessage(e), "error");
+    }
+    busy = "";
+  }
+
+  async function restore(backup: WorldBackup) {
+    busy = backup.file;
+    confirmingRestore = "";
+    try {
+      const folder = await api.restoreWorld(instance.id, backup.file);
+      notify(`Restored ${folder}.`);
       await refresh();
     } catch (e) {
       notify(errorMessage(e), "error");
@@ -156,6 +176,36 @@
       {/each}
     </ul>
   {/if}
+
+  {#if backups.length > 0}
+    <h4>Backups</h4>
+    <ul>
+      {#each backups as backup (backup.file)}
+        <li>
+          <div class="what">
+            <strong>{backup.folder}</strong>
+            <span class="muted">
+              {size(backup.size)} · {new Date(backup.made * 1000).toLocaleString()}
+            </span>
+          </div>
+          {#if confirmingRestore === backup.file}
+            <span class="muted">Replace {backup.folder} with this?</span>
+            <button onclick={() => (confirmingRestore = "")}>Cancel</button>
+            <button class="really" onclick={() => restore(backup)}>Restore</button>
+          {:else}
+            <button
+              disabled={running || !!busy}
+              onclick={() => (confirmingRestore = backup.file)}
+              title="Unpacks the backup over the world it was taken from"
+            >
+              <Icon name="import" />
+              {busy === backup.file ? "Working…" : "Restore"}
+            </button>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+  {/if}
 </Modal>
 
 <style>
@@ -197,6 +247,12 @@
 
   .what .muted {
     font-size: 11px;
+  }
+
+  h4 {
+    margin: 16px 0 8px;
+    font-size: 12px;
+    color: var(--text-dim);
   }
 
   .note {

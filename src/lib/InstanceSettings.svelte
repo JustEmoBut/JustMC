@@ -192,6 +192,23 @@
   </div>
 
   <div class="field">
+    <label for="s-pre">Before launch</label>
+    <input id="s-pre" bind:value={draft.pre_launch} placeholder="backup.bat" spellcheck="false" />
+    <p class="faint">
+      Run in the game folder before the game starts; the launch is cancelled if
+      it fails. <code>$INST_DIR</code>, <code>$INST_MC_DIR</code>,
+      <code>$INST_ID</code>, <code>$INST_NAME</code> and
+      <code>$INST_MC_VERSION</code> are set in the environment (use
+      <code>%NAME%</code> on Windows). Output goes to the launcher log.
+    </p>
+  </div>
+
+  <div class="field">
+    <label for="s-post">After the game exits</label>
+    <input id="s-post" bind:value={draft.post_exit} placeholder="sync-saves.sh" spellcheck="false" />
+  </div>
+
+  <div class="field">
     <label for="s-count">Play time</label>
     <label class="check">
       <input id="s-count" type="checkbox" bind:checked={draft.count_play_time} />

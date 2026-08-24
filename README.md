@@ -25,6 +25,8 @@ Chromium is bundled.
   is involved; Forge older than 1.13 uses a different format and is refused
   with a message
 - Create, configure, delete instances; per-instance memory, Java and JVM args
+- Per-instance commands run before the game starts and after it exits, with
+  the instance's folders in the environment; a failed one cancels the launch
 - Parallel downloading with SHA-1 verification, resumable across runs,
   retried with backoff on a blip or a rate limit, with live transfer rate
   and ETA
@@ -57,6 +59,9 @@ Chromium is bundled.
   crash reports; copying redacts session tokens and usernames
 - Per-instance worlds with their in-game names: back one up as a zip that
   unpacks straight back into `saves`, or delete it
+- Restore a world from any backup taken of it, replacing the save rather than
+  merging into it
+- Edit the game's own `options.txt` from the launcher, without starting the game
 - Browse an instance's screenshots and delete the ones not worth keeping
 - The instance's multiplayer server list, read from and written to the game's
   own `servers.dat`, with a live status ping per server: MOTD, player count,

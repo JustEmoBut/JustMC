@@ -18,6 +18,8 @@
     | "image"
     | "refresh"
     | "server"
+    | "globe"
+    | "package"
     | "gear";
 
   let { name, size = 15 }: { name: IconName; size?: number } = $props();
@@ -73,6 +75,12 @@
     <rect x="2.5" y="3" width="11" height="4" rx="1" />
     <rect x="2.5" y="9" width="11" height="4" rx="1" />
     <path d="M5 5h.01M5 11h.01" />
+  {:else if name === "globe"}
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M2.7 6.2h10.6M2.7 9.8h10.6M8 2.5c1.6 1.6 2.4 3.5 2.4 5.5S9.6 12 8 13.5C6.4 12 5.6 10 5.6 8s.8-3.9 2.4-5.5z" />
+  {:else if name === "package"}
+    <path d="M8 2.2 13.5 5v6L8 13.8 2.5 11V5z" />
+    <path d="M2.5 5 8 7.8 13.5 5M8 7.8v6" />
   {:else if name === "search"}
     <circle cx="7.2" cy="7.2" r="4.2" />
     <path d="m10.4 10.4 3 3" />

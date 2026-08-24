@@ -82,6 +82,14 @@ pub struct Instance {
     pub java_path: String,
     #[serde(default)]
     pub jvm_args: String,
+    /// Shell command run before the game starts; a non-zero exit cancels the
+    /// launch. Empty means none.
+    #[serde(default)]
+    pub pre_launch: String,
+    /// Shell command run after the game exits. Its failure is logged, not
+    /// raised: the session is already over.
+    #[serde(default)]
+    pub post_exit: String,
     /// Unix seconds of the last launch; 0 if never played.
     #[serde(default)]
     pub last_played: u64,
@@ -217,6 +225,8 @@ pub async fn create(
         memory_mb: defaults.memory_mb,
         java_path: defaults.java_path,
         jvm_args: defaults.jvm_args,
+        pre_launch: String::new(),
+        post_exit: String::new(),
         last_played: 0,
         play_time: 0,
         count_play_time: true,
@@ -288,6 +298,8 @@ mod tests {
             memory_mb: 4096,
             java_path: String::new(),
             jvm_args: String::new(),
+            pre_launch: String::new(),
+            post_exit: String::new(),
             last_played: 0,
             play_time: 0,
             count_play_time: true,

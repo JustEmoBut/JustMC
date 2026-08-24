@@ -27,6 +27,8 @@ fn instance(mc_version: &str, loader: Loader, loader_version: &str) -> Instance 
         memory_mb: 4096,
         java_path: String::new(),
         jvm_args: "-XX:+UseG1GC".into(),
+        pre_launch: String::new(),
+        post_exit: String::new(),
         last_played: 0,
         play_time: 0,
         count_play_time: true,

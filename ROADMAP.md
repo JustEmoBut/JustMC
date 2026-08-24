@@ -47,6 +47,19 @@ the code there is C++/Qt and gets rethought for this stack, not ported.
   (`hickory-resolver`) the way the game's own list does; a typed port is left
   alone.
 
+- **Pre-launch and post-exit commands.** Two per-instance shell lines, run
+  through `cmd /C` or `sh -c` in the game folder with the instance in the
+  environment (`INST_DIR`, `INST_MC_DIR`, `INST_ID`, `INST_NAME`,
+  `INST_MC_VERSION`). A failed pre-launch command cancels the launch; both
+  commands' output lands in `logs/latest.log`. No wrapper command: the JVM is
+  launched directly and nothing has needed to sit in front of it.
+
+- **World restore, and the game's options.txt.** A world backup can be
+  unpacked back over the save it was taken from — the archive names the folder,
+  not the file name, and the world is replaced rather than merged into. The
+  Options panel edits `.minecraft/options.txt` as text, which is what the file
+  is; it is refused while the game runs, since the client rewrites it on exit.
+
 ## 1. Skin management
 
 Upload and select skins and capes against

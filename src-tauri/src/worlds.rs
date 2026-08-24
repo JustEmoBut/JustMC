@@ -143,6 +143,104 @@ pub async fn backup(id: &str, folder: &str) -> Result<PathBuf> {
     Ok(dest)
 }
 
+/// A zip in `exports/` that `backup` wrote.
+#[derive(Serialize)]
+pub struct Backup {
+    /// The archive's file name, which is the handle `restore` takes.
+    pub file: String,
+    /// The world folder inside it, from the name `backup` gave the archive.
+    pub folder: String,
+    pub size: u64,
+    /// Unix seconds the backup was taken, out of the same name.
+    pub made: u64,
+}
+
+/// Every backup of this instance's worlds, newest first.
+///
+/// The file name is the index: `backup` writes `<id>-<folder>-<unix>.zip` and
+/// nothing else records that a zip was ever taken, which is the point --
+/// exports/ stays a folder the user can tidy with a file manager.
+pub async fn backups(id: &str) -> Result<Vec<Backup>> {
+    let Ok(entries) = std::fs::read_dir(paths::exports()) else {
+        return Ok(Vec::new()); // nothing exported yet is not an error
+    };
+    let mut out = Vec::new();
+    for entry in entries.flatten() {
+        let file = entry.file_name().to_string_lossy().into_owned();
+        let Some(rest) = file.strip_suffix(".zip").and_then(|n| n.strip_prefix(&format!("{id}-")))
+        else {
+            continue;
+        };
+        // From the right: a world folder may hold hyphens of its own, the
+        // timestamp never does. An instance export (`<id>.zip`) has no
+        // timestamp and drops out here.
+        let Some((folder, stamp)) = rest.rsplit_once('-') else { continue };
+        let Ok(made) = stamp.parse::<u64>() else { continue };
+        let folder = folder.to_string();
+        out.push(Backup {
+            file,
+            folder,
+            size: entry.metadata().map(|m| m.len()).unwrap_or(0),
+            made,
+        });
+    }
+    out.sort_by(|a, b| b.made.cmp(&a.made));
+    Ok(out)
+}
+
+/// Unpack a backup back into `saves`, replacing the world it came from.
+///
+/// The archive decides which folder that is, not the file name: a renamed zip
+/// still restores what is inside it. Everything is checked before anything is
+/// deleted -- one folder, holding a `level.dat` -- because the replacement
+/// starts with a recursive delete of a folder full of the user's saves.
+pub async fn restore(id: &str, file: &str) -> Result<String> {
+    let archive = paths::exports().join(checked_name(file)?);
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(&archive)?)?;
+
+    let mut root: Option<String> = None;
+    for i in 0..zip.len() {
+        // `enclosed_name` rejects absolute paths and `..`; a crafted zip in
+        // exports/ must not be able to write outside saves/.
+        let Some(name) = zip.by_index(i)?.enclosed_name() else {
+            return Err(Error::msg("That zip has an entry with an unsafe path."));
+        };
+        let Some(first) = name.components().next() else { continue };
+        let first = first.as_os_str().to_string_lossy().into_owned();
+        match &root {
+            Some(root) if *root != first => {
+                return Err(Error::msg("That zip holds more than one folder, so it is not a world backup."));
+            }
+            Some(_) => {}
+            None => root = Some(first),
+        }
+    }
+    let root = root.ok_or_else(|| Error::msg("That zip is empty."))?;
+    if zip.by_name(&format!("{root}/{LEVEL_DAT}")).is_err() {
+        return Err(Error::msg("That zip is not a world backup (no level.dat inside)."));
+    }
+
+    let dest = saves(id).await?.join(checked_name(&root)?);
+    // Replaced, not merged: a half-overwritten world is chunks from two saves.
+    if dest.exists() {
+        std::fs::remove_dir_all(&dest)?;
+    }
+    let saves = saves(id).await?;
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i)?;
+        let Some(name) = entry.enclosed_name() else { continue };
+        if entry.is_dir() {
+            continue;
+        }
+        let out = saves.join(name);
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::io::copy(&mut entry, &mut std::fs::File::create(&out)?)?;
+    }
+    Ok(root)
+}
+
 /// Delete a world, permanently. The UI asks first; this does not.
 pub async fn delete(id: &str, folder: &str) -> Result<()> {
     let dir = world_dir(id, folder).await?;

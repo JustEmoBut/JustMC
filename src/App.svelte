@@ -27,6 +27,7 @@
   import Screenshots from "./lib/Screenshots.svelte";
   import Servers from "./lib/Servers.svelte";
   import Worlds from "./lib/Worlds.svelte";
+  import Options from "./lib/Options.svelte";
   import NewInstance from "./lib/NewInstance.svelte";
   import Settings from "./lib/Settings.svelte";
   import TaskWindow from "./lib/TaskWindow.svelte";
@@ -56,6 +57,7 @@
   let editing = $state<Instance | null>(null);
   let managingMods = $state<Instance | null>(null);
   let managingWorlds = $state<Instance | null>(null);
+  let editingOptions = $state<Instance | null>(null);
   let managingServers = $state<Instance | null>(null);
   let viewingShots = $state<Instance | null>(null);
   /** Which folder the content window is showing, so a drop lands in it. */
@@ -339,18 +341,23 @@
         { label: "Open Folder", icon: "folder", action: () => actions.openFolder(instance) },
         {
           label: "Content",
-          icon: "sliders",
+          icon: "package",
           action: () => openContent(instance),
         },
         {
           label: "Worlds",
-          icon: "folder",
+          icon: "globe",
           action: () => (managingWorlds = instance),
         },
         {
           label: "Servers",
           icon: "server",
           action: () => (managingServers = instance),
+        },
+        {
+          label: "Options",
+          icon: "gear",
+          action: () => (editingOptions = instance),
         },
         {
           label: "Screenshots",
@@ -546,6 +553,7 @@
         onmods={openContent}
         onworlds={(i) => (managingWorlds = i)}
         onservers={(i) => (managingServers = i)}
+        onoptions={(i) => (editingOptions = i)}
         onscreenshots={(i) => (viewingShots = i)}
         onexport={(i) => (exporting = i)}
         onchanged={refreshInstances}
@@ -618,6 +626,14 @@
       running={!!busy[managingWorlds.id]}
       onclose={() => (managingWorlds = null)}
       onplay={(folder) => play(managingWorlds!, { kind: "singleplayer", value: folder })}
+    />
+  {/if}
+
+  {#if editingOptions}
+    <Options
+      instance={editingOptions}
+      running={!!busy[editingOptions.id]}
+      onclose={() => (editingOptions = null)}
     />
   {/if}
 

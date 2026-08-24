@@ -44,6 +44,10 @@ export interface Instance {
   memory_mb: number;
   java_path: string;
   jvm_args: string;
+  /** Shell command run before the game starts; a non-zero exit cancels it. */
+  pre_launch: string;
+  /** Shell command run after the game exits. */
+  post_exit: string;
   last_played: number;
   /** Seconds the game has run in this instance, across every launch. */
   play_time: number;
@@ -114,6 +118,17 @@ export interface World {
   size: number;
   /** Unix seconds, from level.dat's modification time. */
   last_played: number;
+}
+
+/** A zip in the exports folder that a world backup wrote. */
+export interface WorldBackup {
+  /** The archive's file name, and the handle restore takes. */
+  file: string;
+  /** The world folder inside it, which restoring replaces. */
+  folder: string;
+  size: number;
+  /** Unix seconds the backup was taken. */
+  made: number;
 }
 
 /** One entry of an instance's `servers.dat`. */
@@ -267,6 +282,13 @@ export const api = {
   backupWorld: (id: string, folder: string) =>
     invoke<string>("backup_world", { id, folder }),
   deleteWorld: (id: string, folder: string) => invoke<void>("delete_world", { id, folder }),
+  listWorldBackups: (id: string) => invoke<WorldBackup[]>("list_world_backups", { id }),
+  /** Replaces the world the backup came from; returns its folder name. */
+  restoreWorld: (id: string, file: string) => invoke<string>("restore_world", { id, file }),
+
+  /** The game's own options.txt, as text; empty when it has none yet. */
+  readOptions: (id: string) => invoke<string>("read_options", { id }),
+  writeOptions: (id: string, text: string) => invoke<void>("write_options", { id, text }),
 
   listServers: (id: string) => invoke<Server[]>("list_servers", { id }),
   addServer: (id: string, name: string, ip: string) =>

@@ -36,6 +36,8 @@ fn sample() -> Instance {
         memory_mb: 6144,
         java_path: String::new(),
         jvm_args: "-XX:+UseG1GC".into(),
+        pre_launch: String::new(),
+        post_exit: String::new(),
         last_played: 1_700_000_000,
         play_time: 7_200,
         count_play_time: true,
@@ -202,6 +204,25 @@ async fn worlds_are_listed_backed_up_and_deleted() {
     let names: Vec<String> = (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().to_owned()).collect();
     assert!(names.contains(&"New World/level.dat".to_string()), "{names:?}");
     assert!(names.contains(&"New World/region/r.0.0.mca".to_string()), "{names:?}");
+
+    // The backup is listed off its file name alone, and the exported instance
+    // zip sitting in the same folder is not one.
+    justlauncher_lib::pack::export(&instance).unwrap();
+    let backups = justlauncher_lib::worlds::backups(&instance.id).await.unwrap();
+    assert_eq!(backups.len(), 1, "only world backups: {backups:?}", backups = backups.iter().map(|b| &b.file).collect::<Vec<_>>());
+    assert_eq!(backups[0].folder, "New World");
+
+    // Restoring replaces the world rather than merging into it: a file that
+    // was not in the backup is gone afterwards.
+    std::fs::write(saves.join("region/stale.mca"), b"old").unwrap();
+    let restored = justlauncher_lib::worlds::restore(&instance.id, &backups[0].file).await.unwrap();
+    assert_eq!(restored, "New World");
+    assert!(!saves.join("region/stale.mca").exists(), "the old world was merged into, not replaced");
+    assert_eq!(std::fs::read(saves.join("region/r.0.0.mca")).unwrap().len(), 2048);
+
+    // Not a world backup, and a name that would escape exports/.
+    assert!(justlauncher_lib::worlds::restore(&instance.id, &format!("{}.zip", instance.id)).await.is_err());
+    assert!(justlauncher_lib::worlds::restore(&instance.id, "../accounts.json").await.is_err());
 
     assert!(justlauncher_lib::worlds::delete(&instance.id, "notaworld").await.is_err());
     assert!(justlauncher_lib::worlds::delete(&instance.id, "../../accounts.json").await.is_err());
@@ -437,3 +458,24 @@ async fn a_plaintext_file_is_migrated_on_first_read() {
     auth::forget(id).await;
 }
 
+
+/// Pre-launch and post-exit hooks: the shell really runs the line, a non-zero
+/// exit is reported as failure (which is what cancels a launch), and the
+/// instance reaches the command in the environment.
+#[tokio::test]
+async fn launch_hooks_run_through_the_shell_and_report_failure() {
+    let _home = scratch_home();
+    let instance = sample();
+    instance.save().await.unwrap();
+    std::fs::create_dir_all(instance.game_dir()).unwrap();
+
+    // One line that works in both shells: `sh` expands the first form, `cmd`
+    // the second, and each leaves the other alone.
+    let (ok, out) = justlauncher_lib::launch::run_hook("echo $INST_ID%INST_ID%", &instance).await;
+    assert!(ok, "{out}");
+    assert!(out.contains(&instance.id), "the instance did not reach the hook: {out}");
+
+    let (ok, out) = justlauncher_lib::launch::run_hook("exit 3", &instance).await;
+    assert!(!ok, "a non-zero exit has to cancel the launch");
+    assert!(out.contains("Exited"), "{out}");
+}

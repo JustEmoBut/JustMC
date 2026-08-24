@@ -53,11 +53,22 @@ instance.json
   -> install::install      extract natives, materialise legacy asset trees
   -> java::find            a matching local JVM, else jre::ensure downloads one
   -> launch::build_command placeholder substitution
+  -> run_hook              the instance's pre-launch command, if it has one
   -> spawn, pump stdout/stderr as `game-log` events and to logs/latest.log
+  -> run_hook              its post-exit command, after the process ends
 ```
 
 `install::install` is idempotent and re-runs on every launch; it is the verify
 pass, not a one-time step.
+
+**A hook is a shell line, not an argument list.** `pre_launch` and `post_exit`
+are handed to `cmd /C` or `sh -c` in the game directory, because a user writes
+one the way they would type it in a terminal — quoting, `&&` and all — and
+splitting the string here would only be a worse shell. The instance reaches it
+through the environment (`INST_ID`, `INST_NAME`, `INST_DIR`, `INST_MC_DIR`,
+`INST_MC_VERSION`), and both hooks' output lands in `logs/latest.log`. A
+failed pre-launch command aborts the launch; a failed post-exit one is logged
+and nothing more, since the session is already over.
 
 **One process per instance.** `RUNNING` in `launch.rs` maps instance id to the
 `oneshot` that stops its process; `RunningGuard` claims the slot before the
@@ -354,22 +365,40 @@ goes through `checked_name` and an extension check, like every other folder.
 
 ### Worlds (`worlds.rs`)
 
-Narrow on purpose: list, back up, delete. The game creates and renames worlds
-better than a launcher can, but it has no backup button next to its delete
-one — and `.minecraft/saves` is the only thing in an instance that cannot be
-re-downloaded, which is the whole reason this exists.
+Narrow on purpose: list, back up, restore, delete. The game creates and renames
+worlds better than a launcher can, but it has no backup button next to its
+delete one — and `.minecraft/saves` is the only thing in an instance that
+cannot be re-downloaded, which is the whole reason this exists.
 
 A folder is a world when it holds a `level.dat`, and that file is also where
-the in-game name and the last-played time come from. The name is found by
-scanning the gunzipped bytes for the `LevelName` tag rather than by parsing
-NBT (marked `ponytail:`); anything that scan does not recognise falls back to
-the folder name, which is what the world was created from anyway.
+the in-game name and the last-played time come from — parsed with the `nbt`
+module written for `servers.dat`. `LastPlayed` is what the game itself shows
+and, unlike the file's modification time, survives a copy or a restore;
+anything unreadable falls back to the folder name and the mtime.
 
 Backups are `pack::zip_dir` — the same walk and filter `export` uses — writing
 into `exports/` with the world folder as the entry prefix, so unpacking into
 `saves` restores it. `world_dir` is the single chokepoint: it runs
 `checked_name` and then insists on a `level.dat`, so neither a crafted name nor
 a stray folder can be handed to `remove_dir_all`.
+
+**The archive names the world, not the file.** `backups` lists `exports/` by
+the shape `backup` writes (`<id>-<folder>-<unix>.zip`) — the file name is the
+only index there is, which is what keeps exports/ a folder the user can tidy
+by hand. `restore` then takes the folder out of the *zip's* entries instead,
+so a renamed backup still works, and it checks everything before it deletes
+anything: one root folder, holding a `level.dat`. The world is replaced rather
+than merged into, because chunks from two saves in one folder is a corrupt
+world.
+
+### Options (`read_options`, `write_options` in `lib.rs`)
+
+`.minecraft/options.txt` edited as text, in two commands too small for a
+module. Text is what the file is — `key:value` per line — and a form would
+have to know all ~150 keys the game keeps adding to. Refused while the game
+runs, like worlds and the server list: the client rewrites the file wholesale
+on exit. A missing file reads as empty rather than as an error, so an instance
+that has never launched gets its first one from here.
 
 ### Servers (`servers.rs`, `nbt.rs`)
 
@@ -382,9 +411,9 @@ client writes keys this launcher has never heard of (`acceptTextures`, whatever
 a version adds next) and rebuilding the file from the fields we understand
 would drop them silently. Every read is bounds-checked and a declared length is
 refused when it runs past the file, because a corrupt `.dat` must be an error
-rather than a panic or a gigabyte allocation. `worlds.rs` still scans
-`level.dat` bytes for one string and is deliberately not moved onto this — it
-reads a gzipped file for a single field.
+rather than a panic or a gigabyte allocation. `worlds.rs` reads `level.dat`
+through the same module, which is where its world names and `LastPlayed` come
+from.
 
 **The list is not touched while the game runs.** The client rewrites
 `servers.dat` wholesale on exit, so anything added underneath it is lost; the
