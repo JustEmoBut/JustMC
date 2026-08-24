@@ -12,6 +12,7 @@
     onedit,
     onmods,
     onworlds,
+    onoptions,
     onservers,
     onscreenshots,
     onexport,
@@ -25,6 +26,7 @@
     onedit: (instance: Instance) => void;
     onmods: (instance: Instance) => void;
     onworlds: (instance: Instance) => void;
+    onoptions: (instance: Instance) => void;
     onservers: (instance: Instance) => void;
     onscreenshots: (instance: Instance) => void;
     onexport: (instance: Instance) => void;
@@ -112,6 +114,36 @@
     </div>
   {/if}
 
+  <!-- The panels an instance holds: a grid of tiles rather than ten identical
+       rows, so the eye picks one out by its icon instead of reading a list. -->
+  <div class="tiles">
+    <button onclick={() => onmods(instance)}>
+      <Icon name="package" size={18} />
+      Content
+    </button>
+    <button onclick={() => onworlds(instance)}>
+      <Icon name="globe" size={18} />
+      Worlds
+    </button>
+    <button onclick={() => onservers(instance)}>
+      <Icon name="server" size={18} />
+      Servers
+    </button>
+    <button onclick={() => onoptions(instance)} title="Edit the game's options.txt">
+      <Icon name="gear" size={18} />
+      Options
+    </button>
+    <button onclick={() => onscreenshots(instance)}>
+      <Icon name="image" size={18} />
+      Screenshots
+    </button>
+    <button onclick={() => actions.openFolder(instance)}>
+      <Icon name="folder" size={18} />
+      Folder
+    </button>
+  </div>
+
+  <!-- What is done *to* the instance rather than opened inside it. -->
   <nav>
     <button
       disabled={!!status}
@@ -120,26 +152,6 @@
     >
       <Icon name="sliders" />
       Edit
-    </button>
-    <button onclick={() => actions.openFolder(instance)}>
-      <Icon name="folder" />
-      Folder
-    </button>
-    <button onclick={() => onmods(instance)}>
-      <Icon name="sliders" />
-      Content
-    </button>
-    <button onclick={() => onworlds(instance)}>
-      <Icon name="folder" />
-      Worlds
-    </button>
-    <button onclick={() => onservers(instance)}>
-      <Icon name="server" />
-      Servers
-    </button>
-    <button onclick={() => onscreenshots(instance)}>
-      <Icon name="image" />
-      Screenshots
     </button>
     <button onclick={duplicate} disabled={duplicating || !!status}>
       <Icon name="copy" />
@@ -182,7 +194,7 @@
     flex: none;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 14px;
     padding: 22px 16px 16px;
     background: linear-gradient(var(--bg-raised), #171a1f 220px);
     border-left: 1px solid #0c0e11;
@@ -256,12 +268,47 @@
     border-color: var(--accent-lit);
   }
 
+  /* Two columns of square-ish tiles: six destinations fit in three rows, and
+     an icon above its label is what makes them tellable apart at a glance. */
+  .tiles {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .tiles button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 12px 6px;
+    min-height: 68px;
+    font-size: 11.5px;
+    color: var(--text-dim);
+    background: rgb(255 255 255 / 0.03);
+    box-shadow: none;
+    border-color: rgb(255 255 255 / 0.05);
+    text-align: center;
+    overflow-wrap: anywhere;
+  }
+
+  .tiles button:hover:not(:disabled) {
+    background: rgb(255 255 255 / 0.08);
+    border-color: rgb(255 255 255 / 0.12);
+    color: var(--text);
+  }
+
   /* A vertical action list, the way a desktop tool presents object actions:
-     left-aligned, icon then verb, no boxes competing for attention. */
+     left-aligned, icon then verb, no boxes competing for attention. The tiles
+     above open a panel; these change the instance itself, and the rule between
+     them is the whole point of the split. */
   nav {
     display: flex;
     flex-direction: column;
     gap: 1px;
+    padding-top: 12px;
+    border-top: 1px solid rgb(255 255 255 / 0.06);
   }
 
   nav button {
