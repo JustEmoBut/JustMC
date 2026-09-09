@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -25,6 +26,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 static RUNNING: LazyLock<Mutex<HashMap<String, Option<Stopper>>>> = LazyLock::new(Mutex::default);
 
 type Stopper = tokio::sync::oneshot::Sender<()>;
+
+/// How long a `pre_launch` or `post_exit` hook may run before it is killed.
+const HOOK_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Removes the instance from `RUNNING` however `launch` ends -- an early error
 /// must not leave the instance permanently unlaunchable.
@@ -309,8 +313,12 @@ pub fn build_command(
 /// Never `Err`: a hook that could not start is a failed hook, and the caller
 /// decides what that costs.
 ///
-// ponytail: no timeout, so a hook that never exits wedges the launch with the
-// instance claimed. Add one if a real hook ever hangs.
+/// A hook that never exits used to wedge the launch with the instance claimed,
+/// so one that outlives `HOOK_TIMEOUT` is killed and counts as failed. The
+/// budget is generous because a pre-launch hook legitimately syncs files or
+/// waits on a server; it is there to catch a hook waiting for input that
+/// stdin's `null` will never bring, not to hurry a slow one.
+///
 /// Public only so `pack_roundtrip` can exercise it against a scratch home: the
 /// data directory is a process-wide env var, and the lib's own test binary has
 /// no lock to take.
@@ -325,12 +333,30 @@ pub async fn run_hook(command: &str, instance: &Instance) -> (bool, String) {
         .env("INST_DIR", instance.dir())
         .env("INST_MC_DIR", instance.game_dir())
         .env("INST_MC_VERSION", &instance.mc_version)
-        .stdin(Stdio::null());
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        // Dropping the child on a timeout has to kill it, or the hook outlives
+        // the launch it was holding up.
+        // ponytail: the shell is killed, not its own children -- a hook that
+        // backgrounded something survives. Job objects and process groups if a
+        // real hook ever leaks one.
+        .kill_on_drop(true);
     #[cfg(windows)]
     cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
 
-    match cmd.output().await {
-        Ok(out) => {
+    let output = async {
+        match cmd.spawn() {
+            Ok(child) => child.wait_with_output().await,
+            Err(e) => Err(e),
+        }
+    };
+    match tokio::time::timeout(HOOK_TIMEOUT, output).await {
+        Err(_) => (
+            false,
+            format!("Killed after {} seconds.\n", HOOK_TIMEOUT.as_secs()),
+        ),
+        Ok(Ok(out)) => {
             let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
             text.push_str(&String::from_utf8_lossy(&out.stderr));
             if !out.status.success() {
@@ -339,7 +365,7 @@ pub async fn run_hook(command: &str, instance: &Instance) -> (bool, String) {
             }
             (out.status.success(), text)
         }
-        Err(e) => (false, format!("Could not run {shell}: {e}
+        Ok(Err(e)) => (false, format!("Could not run {shell}: {e}
 ")),
     }
 }
