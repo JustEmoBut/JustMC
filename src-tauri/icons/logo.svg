@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- The app mark: the same rotated 2x2 block face the rail draws in CSS. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#232830"/>
+      <stop offset="1" stop-color="#14171b"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="216" fill="url(#bg)"/>
+  <g transform="rotate(45 512 512)">
+    <rect x="232" y="232" width="265" height="265" rx="26" fill="#3fb27a"/>
+    <rect x="527" y="232" width="265" height="265" rx="26" fill="#58cf95"/>
+    <rect x="232" y="527" width="265" height="265" rx="26" fill="#2f8d5f"/>
+    <rect x="527" y="527" width="265" height="265" rx="26" fill="#256f4a"/>
+  </g>
+</svg>
