@@ -246,6 +246,11 @@ NeoForge 21.1.248) and each a silent wrong result if assumed away:
 - **Maven coordinates here carry an `@extension`** (`neoform:1.21.1-...@zip`,
   `...:mappings@txt`). Mojang's metadata never does; reading it as part of the
   version makes a directory nothing will ever create.
+- **`${version_name}` is the Minecraft version, not the profile id.** NeoForge's
+  `-DignoreList=${version_name}.jar,...` is what keeps the vanilla client jar off
+  BootstrapLauncher's module path, and that jar is `shared/versions/<mc>/<mc>.jar`.
+  Substituting `neoforge-21.1.250` there leaves it on the classpath *and* the
+  module path, and resolution dies on a split package before a window appears.
 - **`data` values come in three shapes**: `[maven]` is a file in the library
   store, `/data/client.lzma` is a path from the *installer's root*, and
   `'quoted'` is a literal.
@@ -513,7 +518,11 @@ Everything fetched goes through `Job { url, path, sha1, size }`.
 ### Java (`java.rs`, `jre.rs`)
 
 `java::find` returns `Option` and never errors — when nothing matches,
-`jre::ensure` downloads the runtime Mojang ships for that version. The version
+`jre::ensure` downloads the runtime Mojang ships for that version. It picks the
+**closest** compatible major, never the newest installed: `is_compatible` lets a
+17+ requirement fall forward, but a mod loader is built against the Java the
+version names and every release past it is one more removed internal it can
+reflect into — ModLauncher on a Java 26 JVM is what found that. The version
 JSON's `javaVersion.component` maps 1:1 onto Mojang's runtime manifest keys;
 `component_for_major` only covers versions that name none. Downloaded runtimes
 are discoverable by `java::discover`, so they appear in the settings picker.
@@ -571,6 +580,12 @@ Create buttons that way, and the dialog still looked otherwise normal.
 
 When a footer's content depends on state, put the condition *inside* the
 snippet, never around it.
+
+### A dialog closes on Escape and the close button, never the backdrop
+
+`Modal` deliberately has no backdrop click handler. Most dialogs here hold a
+half-filled form (a new instance, instance settings, an export), and a stray
+click beside one is not a decision to discard it.
 
 ### Scroll containers
 
