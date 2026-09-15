@@ -176,10 +176,14 @@ pub fn find(override_path: Option<&str>, required: u32) -> Option<String> {
     if let Some(p) = override_path.filter(|p| !p.is_empty()) {
         return Some(p.to_string());
     }
-    let installs = discover();
-    installs
+    // The closest compatible major, not the newest one on the machine: a mod
+    // loader is built against the Java the version asks for, and every release
+    // past it is one more chance of a removed internal it reflects into. Forge
+    // on a Java 26 JVM is the case that found this.
+    discover()
         .iter()
-        .find(|j| is_compatible(j.major, required))
+        .filter(|j| is_compatible(j.major, required))
+        .min_by_key(|j| j.major)
         .map(|j| j.path.clone())
 }
 
@@ -206,6 +210,16 @@ mod tests {
         assert!(!is_compatible(8, 17));
         assert!(is_compatible(21, 17));
         assert!(!is_compatible(17, 21));
+    }
+
+    #[test]
+    fn the_closest_compatible_major_wins() {
+        let mut majors: Vec<u32> = vec![26, 21, 17, 8]
+            .into_iter()
+            .filter(|m| is_compatible(*m, 21))
+            .collect();
+        majors.sort();
+        assert_eq!(majors.first(), Some(&21));
     }
 
     #[test]
