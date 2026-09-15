@@ -196,7 +196,11 @@ pub fn build_command(
     vars.insert("classpath", classpath_string(jars));
     vars.insert("classpath_separator", if cfg!(windows) { ";".into() } else { ":".into() });
     vars.insert("library_directory", paths::libraries().to_string_lossy().into_owned());
-    vars.insert("version_name", instance.version_id());
+    // NeoForge's `-DignoreList=${version_name}.jar,...` keeps the vanilla client jar
+    // off BootstrapLauncher's module path, and that jar is named after the *Minecraft*
+    // version, not the loader profile. Substituting the profile id leaves it on both
+    // paths and module resolution fails with a split package.
+    vars.insert("version_name", instance.mc_version.clone());
     vars.insert("game_directory", instance.game_dir().to_string_lossy().into_owned());
     vars.insert("assets_root", paths::assets().to_string_lossy().into_owned());
     let assets_index_name = version
