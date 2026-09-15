@@ -22,13 +22,10 @@
 
 <svelte:window {onkeydown} />
 
-<!-- Clicking the backdrop itself closes; clicks inside the dialog bubble up to
-     the same handler, so compare the target to skip those. -->
-<div
-  class="backdrop"
-  role="presentation"
-  onclick={(e) => e.target === e.currentTarget && onclose()}
->
+<!-- The backdrop does not close. A dialog here holds a half-filled form more
+     often than not, and a stray click beside it is not a decision to discard
+     one; Escape and the close button are. -->
+<div class="backdrop" role="presentation">
   <div class="dialog" style:width role="dialog" aria-modal="true" aria-label={title}>
     <header>
       <h2>{title}</h2>
