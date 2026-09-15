@@ -60,6 +60,14 @@
     display: flex;
     flex-direction: column;
     animation: rise 0.14s ease-out;
+    /* `width` is the starting size, not a cap: a mod list or a log is worth
+       more room on a large screen. The drag handle is the browser's own, which
+       needs a non-visible overflow to appear — .body does the scrolling, so
+       clipping here costs nothing. The size lasts as long as the dialog. */
+    resize: both;
+    overflow: hidden;
+    min-width: 320px;
+    min-height: 200px;
   }
 
   header {
