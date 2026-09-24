@@ -81,9 +81,9 @@
     width: 420px;
     max-width: calc(100vw - 40px);
     padding: 22px 24px 20px;
-    border: 1px solid #0c0e11;
+    border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: linear-gradient(var(--bg-panel), var(--bg-raised) 140px);
+    background: var(--bg-raised);
     box-shadow: var(--shadow);
     animation: rise 0.14s ease-out;
   }
@@ -116,7 +116,7 @@
   .bar span {
     display: block;
     height: 100%;
-    background: linear-gradient(90deg, var(--accent), var(--accent-lit));
+    background: var(--accent);
     box-shadow: 0 0 12px rgb(88 207 149 / 0.5);
     transition: width 0.2s ease-out;
   }

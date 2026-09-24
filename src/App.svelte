@@ -436,99 +436,46 @@
 </script>
 
 <div class="app">
-  <!-- The rail is the launcher's spine: identity at the top, the few places you
-       can be in the middle, who you are at the bottom. Icon-only, because the
-       list is short enough to learn and the space belongs to the instances. -->
-  <nav class="rail" aria-label="Sections">
-    <div class="mark" title="JustLauncher" aria-hidden="true">
-      <span></span><span></span><span></span><span></span>
+  <!-- The sidebar is the launcher's spine: identity at the top, the instances
+       in the middle, who you are and the launcher-wide tools at the bottom. -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="mark" aria-hidden="true">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <strong>JustLauncher</strong>
     </div>
-
-    <button class="railed" onclick={() => (showNew = true)} title="Add instance">
-      <Icon name="plus" />
-      <span class="tip">Add instance</span>
-    </button>
-    <button
-      class="railed"
-      onclick={() => api.openExportsFolder().catch((e) => notify(errorMessage(e), "error"))}
-      title="Exports folder"
-    >
-      <Icon name="folder" />
-      <span class="tip">Exports</span>
-    </button>
-    <button
-      class="railed"
-      class:on={showLog}
-      onclick={() => (showLog = !showLog)}
-      title="Game output"
-    >
-      <Icon name="import" />
-      <span class="tip">Output</span>
-    </button>
-
-    <button class="railed" onclick={() => (showSettings = true)} title="Settings">
-      <Icon name="gear" />
-      <span class="tip">Settings</span>
-    </button>
-
-    <span class="spacer"></span>
-
-    <button class="railed avatar" onclick={() => (showAccounts = true)} title="Accounts">
-      {#if activeAccount}
-        <img
-          src="https://api.mineatar.io/face/{activeAccount.id}?scale=8"
-          alt=""
-          width="26"
-          height="26"
-        />
-      {:else}
-        <Icon name="user" />
-      {/if}
-      <span class="tip">{activeAccount ? activeAccount.name : "Add account"}</span>
-    </button>
-  </nav>
-
-  <div class="main">
-  <header class="head">
-    <div class="who">
-      <p class="eyebrow">
-        {activeAccount ? `Playing as ${activeAccount.name}` : "No account yet"}
-      </p>
-      <h1>Instances</h1>
-    </div>
-
-    <span class="spacer"></span>
 
     <div class="find">
-      <Icon name="search" size={13} />
-      <input bind:value={search} placeholder="Search" aria-label="Search instances" />
+      <Icon name="search" size={14} />
+      <input bind:value={search} placeholder="Search instances" aria-label="Search instances" />
     </div>
 
-    <select class="sort" bind:value={sort} aria-label="Sort instances">
-      <option value="recent">Recently played</option>
-      <option value="name">Name</option>
-      <option value="played">Play time</option>
-    </select>
+    <div class="list-head">
+      <span class="eyebrow">Instances · {instances.length}</span>
+      <span class="spacer"></span>
+      <select class="sort" bind:value={sort} aria-label="Sort instances">
+        <option value="recent">Recent</option>
+        <option value="name">Name</option>
+        <option value="played">Play time</option>
+      </select>
+      <button
+        class="ghost icon"
+        onclick={() => (showNew = true)}
+        title="New instance"
+        aria-label="New instance"
+      >
+        <Icon name="plus" size={15} />
+      </button>
+    </div>
 
-    <button class="primary new" onclick={() => (showNew = true)}>
-      <Icon name="plus" size={13} />
-      New instance
-    </button>
-  </header>
-
-  <div class="body">
-    <div class="grid-pane" role="presentation" oncontextmenu={openBackgroundMenu}>
+    <div class="list" role="presentation" oncontextmenu={openBackgroundMenu}>
       {#if visible.length === 0}
-        <div class="empty">
-          <h2>{search ? "No matches" : "No instances yet"}</h2>
-          <p class="muted">
-            {search
-              ? "Nothing here matches that search."
-              : "Add one, or drop a .zip or .mrpack anywhere on this window."}
-          </p>
-        </div>
+        <p class="list-empty muted">
+          {search ? "Nothing matches that search." : "No instances yet."}
+        </p>
       {:else}
-        <div class="grid" role="listbox" aria-label="Instances" tabindex="-1">
+        <div role="listbox" aria-label="Instances" tabindex="-1">
           {#each visible as instance (instance.id)}
             <InstanceTile
               {instance}
@@ -543,53 +490,113 @@
       {/if}
     </div>
 
-    {#if selected}
-      <InstancePanel
-        instance={selected}
-        status={busy[selected.id]}
-        onlaunch={play}
-        onrestart={restart}
-        onedit={(i) => (editing = i)}
-        onmods={openContent}
-        onworlds={(i) => (managingWorlds = i)}
-        onservers={(i) => (managingServers = i)}
-        onoptions={(i) => (editingOptions = i)}
-        onscreenshots={(i) => (viewingShots = i)}
-        onexport={(i) => (exporting = i)}
-        onchanged={refreshInstances}
+    <footer class="side-foot">
+      <button class="ghost account" onclick={() => (showAccounts = true)} title="Accounts">
+        {#if activeAccount}
+          <img
+            src="https://api.mineatar.io/face/{activeAccount.id}?scale=8"
+            alt=""
+            width="26"
+            height="26"
+          />
+        {:else}
+          <Icon name="user" />
+        {/if}
+        <span>{activeAccount ? activeAccount.name : "Add account"}</span>
+      </button>
+      <button
+        class="ghost icon"
+        onclick={() => api.openExportsFolder().catch((e) => notify(errorMessage(e), "error"))}
+        title="Exports folder"
+        aria-label="Exports folder"
+      >
+        <Icon name="folder" />
+      </button>
+      <button
+        class="ghost icon"
+        class:on={showLog}
+        onclick={() => (showLog = !showLog)}
+        title="Game output"
+        aria-label="Game output"
+        aria-pressed={showLog}
+      >
+        <Icon name="import" />
+      </button>
+      <button
+        class="ghost icon"
+        onclick={() => (showSettings = true)}
+        title="Settings"
+        aria-label="Settings"
+      >
+        <Icon name="gear" />
+      </button>
+    </footer>
+  </aside>
+
+  <div class="main">
+    <div class="body">
+      {#if selected}
+        <InstancePanel
+          instance={selected}
+          status={busy[selected.id]}
+          onlaunch={play}
+          onrestart={restart}
+          onedit={(i) => (editing = i)}
+          onmods={openContent}
+          onworlds={(i) => (managingWorlds = i)}
+          onservers={(i) => (managingServers = i)}
+          onoptions={(i) => (editingOptions = i)}
+          onscreenshots={(i) => (viewingShots = i)}
+          onexport={(i) => (exporting = i)}
+          onchanged={refreshInstances}
+        />
+      {:else}
+        <div class="empty">
+          <h2>{search ? "No matches" : "No instances yet"}</h2>
+          <p class="muted">
+            {search
+              ? "Nothing here matches that search."
+              : "Create one, or drop a .zip or .mrpack anywhere on this window."}
+          </p>
+          {#if !search}
+            <button class="primary" onclick={() => (showNew = true)}>
+              <Icon name="plus" size={14} />
+              New instance
+            </button>
+          {/if}
+        </div>
+      {/if}
+    </div>
+
+    {#if showLog}
+      <LogView
+        lines={logChoice ? logFileLines : log}
+        logs={logFiles}
+        choice={logChoice}
+        onchoose={openLog}
+        onclose={() => (showLog = false)}
       />
     {/if}
-  </div>
 
-  {#if showLog}
-    <LogView
-      lines={logChoice ? logFileLines : log}
-      logs={logFiles}
-      choice={logChoice}
-      onchoose={openLog}
-      onclose={() => (showLog = false)}
-    />
-  {/if}
-
-  <div class="status data">
-    {#if selected}
-      <span>Minecraft {selected.mc_version}</span>
-      <span class="sep">·</span>
-      <span>{loaderName(selected.loader)}</span>
-      <span class="sep">·</span>
-      <span>{selected.memory_mb} MB</span>
-      {#if selected.java_path}
+    <div class="status data">
+      {#if selected}
+        <span>Minecraft {selected.mc_version}</span>
         <span class="sep">·</span>
-        <span>custom Java</span>
+        <span>{loaderName(selected.loader)}</span>
+        <span class="sep">·</span>
+        <span>{selected.memory_mb} MB</span>
+        {#if selected.java_path}
+          <span class="sep">·</span>
+          <span>custom Java</span>
+        {/if}
       {/if}
-    {/if}
-    <span class="spacer"></span>
-    {#if totalPlayed}
-      <span>{totalPlayTime(totalPlayed)}</span>
-      <span class="sep">·</span>
-    {/if}
-    <span>{instances.length} {instances.length === 1 ? "instance" : "instances"}</span>
-  </div>
+      <span class="spacer"></span>
+      {#if totalPlayed}
+        <span>{totalPlayTime(totalPlayed)}</span>
+        <span class="sep">·</span>
+      {/if}
+      <span>{instances.length} {instances.length === 1 ? "instance" : "instances"}</span>
+    </div>
   </div>
 
   <TaskWindow />
@@ -694,151 +701,60 @@
     display: flex;
     height: 100vh;
     background: var(--bg);
-    position: relative;
-    z-index: 1;
   }
 
-  .rail {
+  .sidebar {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    width: 56px;
+    gap: 10px;
+    width: 272px;
     flex: none;
-    padding: 10px 0 12px;
-    background: linear-gradient(var(--bg-raised), #171a1f);
-    border-right: 1px solid #0c0e11;
-    box-shadow: 1px 0 0 rgb(255 255 255 / 0.03);
+    padding: 14px 10px 10px;
+    background: var(--bg-raised);
+    border-right: 1px solid var(--border);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 8px 6px;
+    font-size: 15px;
   }
 
   /* The mark is a 2x2 block face, the same shape the instance icons use --
      the app signs itself with its own vocabulary rather than a logotype. */
   .mark {
     display: grid;
-    grid-template: repeat(2, 9px) / repeat(2, 9px);
+    grid-template: repeat(2, 7px) / repeat(2, 7px);
     gap: 2px;
-    margin-bottom: 10px;
     transform: rotate(45deg);
+    margin: 0 4px;
   }
 
   .mark span {
-    border-radius: 1px;
+    border-radius: 1.5px;
     background: var(--accent);
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25);
   }
 
   .mark span:nth-child(2) {
     background: var(--accent-lit);
   }
 
-  .mark span:nth-child(3) {
-    background: #2f8d5f;
-  }
-
   .mark span:nth-child(4) {
-    background: #256f4a;
-  }
-
-  .railed {
-    position: relative;
-    display: grid;
-    place-items: center;
-    width: 38px;
-    height: 34px;
-    padding: 0;
-    background: none;
-    border-color: transparent;
-    box-shadow: none;
-    color: var(--text-faint);
-    border-radius: var(--radius);
-  }
-
-  .railed:hover:not(:disabled) {
-    background: rgb(255 255 255 / 0.06);
-    border-color: transparent;
-    color: var(--text);
-  }
-
-  .railed.on {
-    color: var(--accent-lit);
-    background: rgb(63 178 122 / 0.12);
-  }
-
-  /* The rail marks where you are with a notch on the edge it belongs to, not a
-     pill behind the icon. */
-  .railed.on::before {
-    content: "";
-    position: absolute;
-    left: -9px;
-    width: 3px;
-    height: 18px;
-    border-radius: 0 2px 2px 0;
-    background: var(--accent-lit);
-  }
-
-  .tip {
-    position: absolute;
-    left: calc(100% + 8px);
-    z-index: 5;
-    padding: 4px 9px;
-    border-radius: var(--radius-sm);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow);
-    color: var(--text);
-    font-size: 12px;
-    white-space: nowrap;
-    opacity: 0;
-    pointer-events: none;
-    transform: translateX(-4px);
-    transition: opacity 0.1s, transform 0.1s;
-  }
-
-  .railed:hover .tip,
-  .railed:focus-visible .tip {
-    opacity: 1;
-    transform: none;
-  }
-
-  .avatar img {
-    border-radius: 3px;
-    image-rendering: pixelated;
-    box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5), var(--bevel);
-  }
-
-  .main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-  }
-
-  .head {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 14px 16px;
-    flex: none;
-  }
-
-  .who h1 {
-    font-size: 21px;
-    font-stretch: 92%;
-    line-height: 1.05;
-    margin-top: 4px;
+    opacity: 0.55;
   }
 
   .find {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 8px;
     padding: 0 10px;
     background: var(--bg-inset);
-    border: 1px solid #1a1e24;
-    box-shadow: var(--well);
-    border-radius: var(--radius);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
     color: var(--text-faint);
-    width: 210px;
+    transition: border-color 0.15s var(--ease);
   }
 
   .find:focus-within {
@@ -849,25 +765,101 @@
   .find input {
     border: none;
     background: none;
-    box-shadow: none;
-    padding: 7px 0;
-    font-size: 12.5px;
+    padding: 8px 0;
+    font-size: 13px;
   }
 
   .find input:focus {
     outline: none;
   }
 
-  .sort {
-    width: auto;
-    padding: 7px 8px;
-    font-size: 12.5px;
-  }
-
-  .new {
+  .list-head {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 4px;
+    padding: 6px 4px 0 8px;
+  }
+
+  .list-head .eyebrow {
+    white-space: nowrap;
+  }
+
+  .sort {
+    width: auto;
+    padding: 4px 6px;
+    font-size: 12px;
+    border-color: transparent;
+    background: none;
+    color: var(--text-dim);
+  }
+
+  button.icon {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+  }
+
+  button.icon.on {
+    color: var(--accent-lit);
+    background: var(--accent-soft);
+  }
+
+  .list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .list > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .list-empty {
+    padding: 8px;
+    font-size: 13px;
+  }
+
+  .side-foot {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+
+  .account {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 5px 8px;
+    color: var(--text);
+    text-align: left;
+  }
+
+  .account span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .account img {
+    flex: none;
+    border-radius: 5px;
+    image-rendering: pixelated;
+  }
+
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
   }
 
   .body {
@@ -876,62 +868,42 @@
     min-height: 0;
   }
 
-  /* The well the instances sit in: recessed, so the tiles read as things
-     placed into it rather than shapes painted on it. */
-  .grid-pane {
-    flex: 1;
-    overflow-y: auto;
-    overflow-x: hidden;
-    min-width: 0;
-    margin: 0 0 0 4px;
-    background: var(--bg-inset);
-    border-top: 1px solid #0b0d10;
-    border-left: 1px solid #0b0d10;
-    border-top-left-radius: var(--radius);
-    box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.5);
-  }
-
-  .grid {
-    display: flex;
-    flex-wrap: wrap;
-    align-content: start;
-    gap: 10px;
-    padding: 16px;
-  }
-
   .empty {
+    flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: 100%;
+    gap: 8px;
     text-align: center;
     padding: 0 30px;
   }
 
   .empty h2 {
-    font-size: 16px;
-    margin-bottom: 6px;
+    font-size: 18px;
   }
 
   .empty p {
-    margin: 0;
+    margin: 0 0 8px;
     max-width: 340px;
     line-height: 1.5;
   }
 
-  /* One line of facts about what is selected, or about what is downloading —
-     the place the eye already goes on a desktop tool. */
+  .empty button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* One line of facts about what is selected -- the place the eye already
+     goes on a desktop tool. */
   .status {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 0 14px;
-    height: 28px;
-    position: relative;
-    background: linear-gradient(#1c2026, #15181c);
-    border-top: 1px solid #0c0e11;
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.035);
+    padding: 0 16px;
+    height: 30px;
+    border-top: 1px solid var(--border);
     color: var(--text-faint);
     flex: none;
   }
@@ -939,13 +911,15 @@
   .sep {
     opacity: 0.5;
   }
+
   .dropzone {
     position: fixed;
     inset: 0;
     z-index: 60;
     display: grid;
     place-items: center;
-    background: rgb(0 0 0 / 0.62);
+    background: rgb(0 0 0 / 0.6);
+    backdrop-filter: blur(4px);
     pointer-events: none;
   }
 
@@ -956,7 +930,7 @@
     align-items: center;
     padding: 38px 60px;
     border: 2px dashed var(--accent);
-    border-radius: 4px;
+    border-radius: var(--radius-lg);
     background: var(--bg-raised);
   }
 
@@ -964,9 +938,9 @@
     font-size: 16px;
   }
 
-  @media (max-width: 780px) {
-    .find {
-      width: 130px;
+  @media (max-width: 820px) {
+    .sidebar {
+      width: 220px;
     }
   }
 </style>

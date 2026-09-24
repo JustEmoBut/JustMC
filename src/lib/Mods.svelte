@@ -788,7 +788,7 @@
   }
 
   .segmented .active {
-    background: linear-gradient(var(--bg-panel), var(--bg-raised));
+    background: var(--bg-raised);
     border-color: var(--border-strong);
     box-shadow: var(--bevel);
     color: var(--text);
@@ -827,8 +827,8 @@
 
   .bulk {
     padding: 7px 10px;
-    background: rgb(63 178 122 / 0.1);
-    box-shadow: inset 0 0 0 1px rgb(63 178 122 / 0.25);
+    background: rgb(34 197 94 / 0.1);
+    box-shadow: inset 0 0 0 1px rgb(34 197 94 / 0.25);
     border-radius: var(--radius);
     font-size: 12.5px;
   }
@@ -858,8 +858,8 @@
   }
 
   .installed li.picked {
-    background: rgb(63 178 122 / 0.1);
-    box-shadow: inset 0 0 0 1px rgb(63 178 122 / 0.22);
+    background: rgb(34 197 94 / 0.1);
+    box-shadow: inset 0 0 0 1px rgb(34 197 94 / 0.22);
   }
 
   li:last-child {
@@ -961,14 +961,14 @@
     padding: 0;
     border-radius: 100px;
     background: var(--bg-inset);
-    border-color: #1a1e24;
+    border-color: var(--border-strong);
     box-shadow: var(--well);
   }
 
   .switch[aria-checked="true"] {
-    background: linear-gradient(var(--accent), #2f8d5f);
-    border-color: #2f8d5f;
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2), 0 0 12px rgb(63 178 122 / 0.3);
+    background: var(--accent);
+    border-color: var(--accent);
+    box-shadow: none;
   }
 
   .knob {
@@ -978,14 +978,14 @@
     width: 15px;
     height: 15px;
     border-radius: 100px;
-    background: linear-gradient(#6b7480, #4b535d);
+    background: #71717a;
     box-shadow: 0 1px 2px rgb(0 0 0 / 0.5);
     transition: transform 0.12s ease-out, background 0.12s;
   }
 
   .switch[aria-checked="true"] .knob {
     transform: translateX(17px);
-    background: linear-gradient(#ffffff, #d7dde3);
+    background: #fff;
   }
 
   /* Gold is spent on one thing in this app: a build waiting to be installed. */
@@ -1044,8 +1044,8 @@
   /* Queued rows are marked but stay readable: they are a shopping list, not a
      selection you act on by existing. */
   .hits .queued {
-    background: rgb(63 178 122 / 0.07);
-    box-shadow: inset 0 0 0 1px rgb(63 178 122 / 0.18);
+    background: rgb(34 197 94 / 0.07);
+    box-shadow: inset 0 0 0 1px rgb(34 197 94 / 0.18);
   }
 
   .hits li > input[type="checkbox"] {
@@ -1053,8 +1053,8 @@
   }
 
   .hits .current {
-    background: rgb(63 178 122 / 0.14);
-    box-shadow: inset 0 0 0 1px rgb(63 178 122 / 0.3);
+    background: rgb(34 197 94 / 0.14);
+    box-shadow: inset 0 0 0 1px rgb(34 197 94 / 0.3);
   }
 
   .detail {
@@ -1063,7 +1063,7 @@
        overhang then draw a scrollbar across the pane. */
     overflow-x: hidden;
     padding: 16px;
-    background: linear-gradient(var(--bg-panel), var(--bg-raised) 180px);
+    background: var(--bg-raised);
     border-radius: var(--radius);
     box-shadow: var(--bevel), inset 0 0 0 1px rgb(255 255 255 / 0.03);
   }
@@ -1145,8 +1145,8 @@
     gap: 7px;
     padding: 7px 12px;
     border-radius: var(--radius-sm);
-    background: rgb(63 178 122 / 0.12);
-    box-shadow: inset 0 0 0 1px rgb(63 178 122 / 0.3);
+    background: rgb(34 197 94 / 0.12);
+    box-shadow: inset 0 0 0 1px rgb(34 197 94 / 0.3);
     color: var(--accent-lit);
     font-size: 13px;
     font-weight: 600;

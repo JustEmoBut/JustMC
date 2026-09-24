@@ -584,8 +584,8 @@
   }
 
   .results .current {
-    background: rgb(63 178 122 / 0.14);
-    box-shadow: inset 0 0 0 1px rgb(63 178 122 / 0.3);
+    background: rgb(34 197 94 / 0.14);
+    box-shadow: inset 0 0 0 1px rgb(34 197 94 / 0.3);
   }
 
   .row {
@@ -669,7 +669,7 @@
        overhang then draw a scrollbar across the pane. */
     overflow-x: hidden;
     padding: 16px;
-    background: linear-gradient(var(--bg-panel), var(--bg-raised) 180px);
+    background: var(--bg-raised);
     border-radius: var(--radius);
     box-shadow: var(--bevel), inset 0 0 0 1px rgb(255 255 255 / 0.03);
   }

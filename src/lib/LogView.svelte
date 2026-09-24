@@ -84,9 +84,9 @@
 
 <style>
   .panel {
-    border-top: 1px solid #0c0e11;
+    border-top: 1px solid var(--border);
     box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.035);
-    background: linear-gradient(var(--bg-raised), #171a1f);
+    background: var(--bg-raised);
     height: 260px;
     display: flex;
     flex-direction: column;
@@ -98,7 +98,7 @@
     align-items: center;
     gap: 10px;
     padding: 8px 10px 8px 18px;
-    border-bottom: 1px solid #0c0e11;
+    border-bottom: 1px solid var(--border);
     box-shadow: 0 1px 0 rgb(255 255 255 / 0.03);
   }
 

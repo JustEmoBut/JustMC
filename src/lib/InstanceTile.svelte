@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Instance } from "./api";
+  import { loaderName, type Instance } from "./api";
   import BlockIcon from "./BlockIcon.svelte";
 
   let {
@@ -41,104 +41,86 @@
     }
   }}
 >
-  <BlockIcon name={instance.name} size={52} fabric={instance.loader !== "vanilla"} />
-  <span class="name">{instance.name}</span>
-  <span class="version">{instance.mc_version}</span>
+  <BlockIcon name={instance.name} size={32} fabric={instance.loader !== "vanilla"} />
+  <span class="text">
+    <span class="name">{instance.name}</span>
+    <span class="version">{instance.mc_version} · {loaderName(instance.loader)}</span>
+  </span>
+  {#if running}
+    <span class="live" aria-label="Running"></span>
+  {/if}
 </div>
 
 <style>
-  /* An inventory slot, not a card. The game this launches puts everything you
-     own in a bevelled well on a grid, and that is the one piece of its visual
-     language worth borrowing wholesale: it makes a wall of instances scannable
-     without a single decorative pixel. */
+  /* A list row in the sidebar: the icon is the landmark, the name the label,
+     and the version a quiet second line. */
   .tile {
-    position: relative;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 9px;
-    width: 118px;
-    height: 140px;
-    padding: 14px 8px 10px;
-    border: 1px solid #0d0f12;
+    gap: 10px;
+    min-height: 48px;
+    padding: 7px 10px;
     border-radius: var(--radius);
-    background: linear-gradient(var(--bg-raised), #171a1f);
-    box-shadow: var(--bevel);
     cursor: pointer;
-    text-align: center;
-    transition: background 0.12s, border-color 0.12s, transform 0.09s ease-out,
-      box-shadow 0.12s;
+    transition: background 0.15s var(--ease);
   }
 
-  /* Hover lifts the whole slot a pixel, the way picking an item up does. */
   .tile:hover {
-    transform: translateY(-2px);
-    background: linear-gradient(#252a32, #1b1f25);
-    box-shadow: var(--bevel), 0 8px 18px rgb(0 0 0 / 0.45);
+    background: var(--bg-hover);
   }
 
   .tile.selected {
-    border-color: #2f8d5f;
-    background: linear-gradient(rgb(63 178 122 / 0.16), rgb(63 178 122 / 0.05));
-    box-shadow: var(--bevel), 0 0 0 1px rgb(63 178 122 / 0.35),
-      0 8px 22px rgb(0 0 0 / 0.5);
+    background: var(--bg-panel);
+    box-shadow: inset 0 0 0 1px var(--border);
   }
 
   .tile:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: -1px;
+    outline: 2px solid rgb(34 197 94 / 0.45);
+    outline-offset: -2px;
   }
 
-  /* A running instance gets a lit ring and a pulse on the block itself -- the
-     only animation in the grid, spent on the one thing that is live. */
-  .running :global(.block) {
-    box-shadow:
-      inset 0 0 0 1px rgb(0 0 0 / 0.35),
-      0 0 0 2px var(--accent-lit),
-      0 0 16px rgb(88 207 149 / 0.55);
+  .text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .name,
+  .version {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .name {
+    font-size: 13.5px;
+    font-weight: 550;
+  }
+
+  .version {
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+
+  .selected .version {
+    color: var(--text-dim);
+  }
+
+  /* The only animation in the list, spent on the one thing that is live. */
+  .live {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
     animation: breathe 2.4s ease-in-out infinite;
   }
 
   @keyframes breathe {
     50% {
-      box-shadow:
-        inset 0 0 0 1px rgb(0 0 0 / 0.35),
-        0 0 0 2px var(--accent),
-        0 0 6px rgb(88 207 149 / 0.3);
+      box-shadow: 0 0 0 6px transparent;
     }
-  }
-
-  /* Two lines before truncating: "Fabric Sandb…" tells you less than a wrapped
-     name does, and the grid has the room. */
-  .name {
-    font-size: 12.5px;
-    line-height: 1.25;
-    max-width: 100%;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    overflow-wrap: anywhere;
-  }
-
-  .selected .name {
-    font-weight: 650;
-  }
-
-  .version {
-    margin-top: auto;
-    padding: 2px 7px;
-    border-radius: 100px;
-    background: rgb(0 0 0 / 0.35);
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.05);
-    font-family: var(--mono);
-    font-size: 10px;
-    font-variant-numeric: tabular-nums;
-    color: var(--text-dim);
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 </style>

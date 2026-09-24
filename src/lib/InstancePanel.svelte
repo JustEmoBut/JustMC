@@ -79,300 +79,327 @@
   }
 </script>
 
-<aside>
-  <div class="identity">
-    <BlockIcon
-      name={instance.name}
-      size={56}
-      fabric={instance.loader !== "vanilla"}
-    />
-    <h2>{instance.name}</h2>
-    <p class="data">
-      {instance.mc_version} · {loaderName(instance.loader)}
-    </p>
-  </div>
+<section class="detail">
+  <header class="hero">
+    <BlockIcon name={instance.name} size={72} fabric={instance.loader !== "vanilla"} />
+    <div class="title">
+      <p class="eyebrow">{played(instance.last_played)}</p>
+      <h1>{instance.name}</h1>
+      <div class="chips">
+        <span class="chip data">{instance.mc_version}</span>
+        <span class="chip">{loaderName(instance.loader)}</span>
+        {#if status}
+          <span class="chip live">{status}</span>
+        {/if}
+      </div>
+    </div>
+  </header>
 
-  <button class="launch" disabled={!!status} onclick={() => onlaunch(instance)}>
-    <Icon name="play" size={13} />
-    {status ?? "Launch"}
-  </button>
-
-  {#if status === "Running"}
-    <div class="row running">
-      <button class="stop" onclick={() => actions.stopInstance(instance)}>
-        <Icon name="stop" size={13} />
+  <div class="actions">
+    {#if status === "Running"}
+      <button onclick={() => actions.stopInstance(instance)}>
+        <Icon name="stop" size={14} />
         Stop
       </button>
-      <button
-        class="stop"
-        onclick={() => onrestart(instance)}
-        title="Quit the game and start it again"
-      >
-        <Icon name="refresh" size={13} />
+      <button onclick={() => onrestart(instance)} title="Quit the game and start it again">
+        <Icon name="refresh" size={14} />
         Restart
       </button>
-    </div>
-  {/if}
+    {:else}
+      <button class="primary launch" disabled={!!status} onclick={() => onlaunch(instance)}>
+        <Icon name="play" size={14} />
+        {status ?? "Play"}
+      </button>
+    {/if}
 
-  <!-- The panels an instance holds: a grid of tiles rather than ten identical
-       rows, so the eye picks one out by its icon instead of reading a list. -->
-  <div class="tiles">
-    <button onclick={() => onmods(instance)}>
-      <Icon name="package" size={18} />
-      Content
-    </button>
-    <button onclick={() => onworlds(instance)}>
-      <Icon name="globe" size={18} />
-      Worlds
-    </button>
-    <button onclick={() => onservers(instance)}>
-      <Icon name="server" size={18} />
-      Servers
-    </button>
-    <button onclick={() => onoptions(instance)} title="Edit the game's options.txt">
-      <Icon name="gear" size={18} />
-      Options
-    </button>
-    <button onclick={() => onscreenshots(instance)}>
-      <Icon name="image" size={18} />
-      Screenshots
-    </button>
-    <button onclick={() => actions.openFolder(instance)}>
-      <Icon name="folder" size={18} />
-      Folder
-    </button>
-  </div>
+    <span class="spacer"></span>
 
-  <!-- What is done *to* the instance rather than opened inside it. -->
-  <nav>
+    <!-- What is done *to* the instance rather than opened inside it. -->
     <button
+      class="ghost"
       disabled={!!status}
-      title={status ? "Stop the game before editing this instance." : undefined}
+      title={status ? "Stop the game before editing this instance." : "Edit"}
+      aria-label="Edit"
       onclick={() => onedit(instance)}
     >
       <Icon name="sliders" />
-      Edit
     </button>
-    <button onclick={duplicate} disabled={duplicating || !!status}>
+    <button
+      class="ghost"
+      onclick={duplicate}
+      disabled={duplicating || !!status}
+      title={duplicating ? "Copying…" : "Duplicate"}
+      aria-label="Duplicate"
+    >
       <Icon name="copy" />
-      {duplicating ? "Copying…" : "Duplicate"}
     </button>
-    <button onclick={() => onexport(instance)}>
+    <button class="ghost" onclick={() => onexport(instance)} title="Export" aria-label="Export">
       <Icon name="export" />
-      Export
     </button>
+    <button
+      class="ghost destructive"
+      disabled={!!status}
+      title={status ? "Stop the game before deleting this instance." : "Delete"}
+      aria-label="Delete"
+      onclick={() => (confirmingDelete = true)}
+    >
+      <Icon name="trash" />
+    </button>
+  </div>
 
-    {#if confirmingDelete}
-      <div class="confirm">
-        <p>Delete this instance and every world in it?</p>
-        <div class="row">
-          <button onclick={() => (confirmingDelete = false)}>Cancel</button>
-          <button class="really" onclick={remove}>Delete</button>
-        </div>
-      </div>
-    {:else}
-      <button
-        class="destructive"
-        disabled={!!status}
-        title={status ? "Stop the game before deleting this instance." : undefined}
-        onclick={() => (confirmingDelete = true)}
-      >
-        <Icon name="trash" />
-        Delete
-      </button>
-    {/if}
-  </nav>
+  {#if confirmingDelete}
+    <div class="confirm" role="alert">
+      <p>Delete this instance and every world in it?</p>
+      <button onclick={() => (confirmingDelete = false)}>Cancel</button>
+      <button class="really" onclick={remove}>Delete</button>
+    </div>
+  {/if}
 
-  <p class="footnote">
-    {played(instance.last_played)}{#if playTime(instance.play_time)} · {playTime(instance.play_time)}{/if}
-  </p>
-</aside>
+  <dl class="stats">
+    <div>
+      <dt>Minecraft</dt>
+      <dd class="data">{instance.mc_version}</dd>
+    </div>
+    <div>
+      <dt>Loader</dt>
+      <dd>{loaderName(instance.loader)}</dd>
+    </div>
+    <div>
+      <dt>Memory</dt>
+      <dd class="data">{instance.memory_mb} MB</dd>
+    </div>
+    <div>
+      <dt>Play time</dt>
+      <dd>{playTime(instance.play_time) || "None yet"}</dd>
+    </div>
+  </dl>
+
+  <!-- The panels an instance holds: cards rather than identical rows, so the
+       eye picks one out by its icon instead of reading a list. -->
+  <h2 class="eyebrow">Manage</h2>
+  <div class="tiles">
+    <button onclick={() => onmods(instance)}>
+      <Icon name="package" size={18} />
+      <strong>Content</strong>
+      <span>Mods, resource packs, shaders</span>
+    </button>
+    <button onclick={() => onworlds(instance)}>
+      <Icon name="globe" size={18} />
+      <strong>Worlds</strong>
+      <span>Back up, restore, play</span>
+    </button>
+    <button onclick={() => onservers(instance)}>
+      <Icon name="server" size={18} />
+      <strong>Servers</strong>
+      <span>Multiplayer list</span>
+    </button>
+    <button onclick={() => onoptions(instance)}>
+      <Icon name="gear" size={18} />
+      <strong>Options</strong>
+      <span>The game's options.txt</span>
+    </button>
+    <button onclick={() => onscreenshots(instance)}>
+      <Icon name="image" size={18} />
+      <strong>Screenshots</strong>
+      <span>Everything you captured</span>
+    </button>
+    <button onclick={() => actions.openFolder(instance)}>
+      <Icon name="folder" size={18} />
+      <strong>Folder</strong>
+      <span>Open in the file manager</span>
+    </button>
+  </div>
+</section>
 
 <style>
-  aside {
-    width: 244px;
-    flex: none;
+  .detail {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: 22px 16px 16px;
-    background: linear-gradient(var(--bg-raised), #171a1f 220px);
-    border-left: 1px solid #0c0e11;
-    box-shadow: inset 1px 0 0 rgb(255 255 255 / 0.035);
+    gap: 20px;
+    padding: 32px 36px;
     overflow-y: auto;
     overflow-x: hidden;
   }
 
-  /* The block sits in a lit alcove: the selected instance gets the one pool of
-     colour in the window, so the eye knows what the column is about. */
-  .identity {
-    position: relative;
+  .hero {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 10px;
-    padding: 18px 10px 16px;
-    border-radius: var(--radius);
-    background: radial-gradient(120% 90% at 50% 0%, rgb(63 178 122 / 0.16), transparent 72%);
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.04);
-    text-align: center;
+    gap: 20px;
   }
 
-  h2 {
-    font-size: 15.5px;
-    line-height: 1.3;
+  .title {
+    min-width: 0;
+  }
+
+  h1 {
+    margin: 4px 0 10px;
+    font-size: 28px;
+    line-height: 1.15;
     overflow-wrap: anywhere;
   }
 
-  .identity p {
-    margin: 0;
-    color: var(--text-faint);
-  }
-
-  /* The one filled control in the window: everything else in this column is a
-     list item, and Launch is the reason the column exists. */
-  .launch {
+  .chips {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 9px;
-    padding: 12px;
-    font-size: 14px;
-    font-weight: 700;
-    font-stretch: 90%;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-    background: linear-gradient(var(--accent-lit), var(--accent));
-    border-color: #2f8d5f;
-    color: var(--accent-ink);
-    box-shadow: var(--bevel), 0 0 24px rgb(63 178 122 / 0.25);
-  }
-
-  .running {
-    display: flex;
+    flex-wrap: wrap;
     gap: 6px;
-    margin-top: 8px;
   }
 
-  .stop {
-    flex: 1;
+  .chip {
+    padding: 3px 9px;
+    border-radius: 100px;
+    border: 1px solid var(--border-strong);
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .chip.live {
+    border-color: transparent;
+    background: var(--accent-soft);
+    color: var(--accent-lit);
+  }
+
+  .actions {
     display: flex;
     align-items: center;
-    justify-content: center;
     gap: 8px;
-    padding: 7px;
   }
 
-  .launch:hover:not(:disabled) {
-    background: linear-gradient(#6ee0a6, var(--accent-lit));
-    border-color: var(--accent-lit);
-  }
-
-  /* Two columns of square-ish tiles: six destinations fit in three rows, and
-     an icon above its label is what makes them tellable apart at a glance. */
-  .tiles {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-  }
-
-  .tiles button {
+  .actions button {
     display: flex;
-    flex-direction: column;
     align-items: center;
+    gap: 8px;
+    min-height: 40px;
+  }
+
+  .actions button.ghost {
+    width: 40px;
     justify-content: center;
-    gap: 7px;
-    padding: 12px 6px;
-    min-height: 68px;
-    font-size: 11.5px;
-    color: var(--text-dim);
-    background: rgb(255 255 255 / 0.03);
-    box-shadow: none;
-    border-color: rgb(255 255 255 / 0.05);
-    text-align: center;
-    overflow-wrap: anywhere;
+    padding: 0;
   }
 
-  .tiles button:hover:not(:disabled) {
-    background: rgb(255 255 255 / 0.08);
-    border-color: rgb(255 255 255 / 0.12);
-    color: var(--text);
+  /* The one filled control in the window: Play is the reason it exists. */
+  .launch {
+    min-width: 160px;
+    justify-content: center;
+    font-size: 15px;
   }
 
-  /* A vertical action list, the way a desktop tool presents object actions:
-     left-aligned, icon then verb, no boxes competing for attention. The tiles
-     above open a panel; these change the instance itself, and the rule between
-     them is the whole point of the split. */
-  nav {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    padding-top: 12px;
-    border-top: 1px solid rgb(255 255 255 / 0.06);
-  }
-
-  nav button {
-    display: flex;
-    align-items: center;
-    gap: 11px;
-    padding: 8px 10px;
-    background: none;
-    box-shadow: none;
-    border-color: transparent;
-    border-radius: var(--radius-sm);
-    color: var(--text-dim);
-    font-size: 13px;
-    text-align: left;
-  }
-
-  nav button:hover:not(:disabled) {
-    background: rgb(255 255 255 / 0.06);
-    border-color: transparent;
-    color: var(--text);
-  }
-
-  nav button.destructive:hover:not(:disabled) {
-    background: rgb(217 112 95 / 0.14);
+  .destructive:hover:not(:disabled) {
+    background: rgb(248 113 113 / 0.1);
     color: var(--danger);
   }
 
   .confirm {
-    padding: 9px;
-    border: 1px solid rgb(217 112 95 / 0.4);
-    border-radius: 3px;
-    background: rgb(217 112 95 / 0.08);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid rgb(248 113 113 / 0.35);
+    border-radius: var(--radius);
+    background: rgb(248 113 113 / 0.07);
   }
 
   .confirm p {
-    margin: 0 0 9px;
-    font-size: 12px;
-    line-height: 1.45;
-    color: var(--text-dim);
-  }
-
-  .confirm .row {
-    gap: 6px;
-  }
-
-  .confirm button {
     flex: 1;
-    padding: 5px;
-    font-size: 12px;
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-dim);
   }
 
   .really {
     background: var(--danger);
     border-color: var(--danger);
-    color: #2a0f0b;
+    color: #2a0808;
+  }
+
+  .really:hover:not(:disabled) {
+    background: #fca5a5;
+    border-color: #fca5a5;
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 1px;
+    margin: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--border);
+    overflow: hidden;
+  }
+
+  .stats div {
+    padding: 14px 16px;
+    background: var(--bg-raised);
+  }
+
+  dt {
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+
+  dd {
+    margin: 4px 0 0;
+    font-size: 15px;
     font-weight: 600;
   }
 
-  /* Pinned to the bottom so the action list stays tight to the launch button
-     instead of floating in the middle of the column. */
-  .footnote {
-    margin: auto 0 0;
-    font-size: 11.5px;
+  dd.data {
+    font-size: 14px;
+  }
+
+  h2.eyebrow {
+    margin-bottom: -8px;
+  }
+
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 10px;
+  }
+
+  .tiles button {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 12px;
+    row-gap: 2px;
+    align-items: center;
+    padding: 14px 16px;
+    text-align: left;
+    background: var(--bg-raised);
+    border-color: var(--border);
+    border-radius: var(--radius-lg);
+    color: var(--text-dim);
+  }
+
+  .tiles button :global(svg) {
+    grid-row: span 2;
     color: var(--text-faint);
-    text-align: center;
+    transition: color 0.15s var(--ease);
+  }
+
+  .tiles button:hover:not(:disabled) {
+    background: var(--bg-panel);
+    border-color: var(--border-strong);
+  }
+
+  .tiles button:hover :global(svg) {
+    color: var(--accent-lit);
+  }
+
+  .tiles strong {
+    font-size: 14px;
+    color: var(--text);
+  }
+
+  .tiles span {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

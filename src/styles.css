@@ -23,43 +23,47 @@
     U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
-/* Deepslate: the palette is read off the material the game is made of -- a
-   deepslate ground, stone panels, an inset well for anything you put things
-   into, and emerald for "this is yours" and "this is the action". Colour is
-   never decorative here; if something is green it is selected or it is a verb. */
+/* Modern minimal dark: flat surfaces separated by hairline borders rather
+   than bevels, one accent, and colour only where it means something -- green
+   is "selected" or "the action", never decoration. Token names are shared by
+   every component, so a dialog picks the palette up without being touched. */
 :root {
-  --bg: #14161a;
-  --bg-raised: #1b1e24;
-  --bg-panel: #212630;
-  --bg-inset: #0e1013;
-  --border: #2a2f37;
-  --border-strong: #3b424d;
-  --text: #e4e7ec;
-  --text-dim: #98a0ab;
-  --text-faint: #69717c;
+  --bg: #0b0c0e;
+  --bg-raised: #131417;
+  --bg-panel: #1a1b1f;
+  --bg-inset: #0f1012;
+  --bg-hover: rgb(255 255 255 / 0.05);
+  --border: rgb(255 255 255 / 0.07);
+  --border-strong: rgb(255 255 255 / 0.12);
+  --text: #ededef;
+  --text-dim: #a1a1aa;
+  --text-faint: #7c7c85;
 
-  --accent: #3fb27a;
-  --accent-lit: #58cf95;
-  --accent-ink: #04170d;
-  --danger: #d9705f;
+  --accent: #22c55e;
+  --accent-lit: #4ade80;
+  --accent-soft: rgb(34 197 94 / 0.12);
+  --accent-ink: #03170b;
+  --danger: #f87171;
   /* Reserved for one thing only: a mod with a newer build waiting. */
-  --xp: #d6a34a;
+  --xp: #fbbf24;
 
-  --radius: 5px;
-  --radius-sm: 3px;
-  --shadow: 0 18px 50px rgb(0 0 0 / 0.55), 0 2px 6px rgb(0 0 0 / 0.4);
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
+  --shadow: 0 16px 48px rgb(0 0 0 / 0.5), 0 0 0 1px var(--border);
 
-  /* The bevel is the whole visual language: one pixel of light on top, one of
-     shadow underneath. Every raised surface wears it, every well wears it
-     inverted. It is what keeps the app from reading as flat colour fields. */
-  --bevel: inset 0 1px 0 rgb(255 255 255 / 0.055), 0 1px 0 rgb(0 0 0 / 0.35);
-  --well: inset 0 1px 2px rgb(0 0 0 / 0.55), inset 0 0 0 1px rgb(0 0 0 / 0.25);
+  /* Kept as names so older component styles still resolve; the minimal look
+     has no bevel and a well is just a quieter surface. */
+  --bevel: none;
+  --well: inset 0 0 0 1px var(--border);
 
+  --ease: cubic-bezier(0.2, 0, 0, 1);
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
 
   color-scheme: dark;
   font-family: Archivo, "Segoe UI", system-ui, -apple-system, sans-serif;
   font-size: 14px;
+  line-height: 1.45;
   color: var(--text);
   background: var(--bg);
 }
@@ -76,19 +80,6 @@ body {
   user-select: none;
 }
 
-/* A dither of noise over the whole window. Flat dark UI reads as a void; the
-   game this launches has visible grain in every surface it draws. Generated
-   rather than shipped so it costs no asset and no network. */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.35;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.16'/%3E%3C/svg%3E");
-}
-
 #app {
   height: 100vh;
 }
@@ -97,46 +88,38 @@ h1,
 h2,
 h3 {
   margin: 0;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 650;
+  letter-spacing: -0.015em;
 }
 
-/* Archivo carries a width axis, so the utility voice of the app -- section
-   headers, eyebrows, the rail -- is set condensed and small rather than in a
-   second typeface. */
 .eyebrow {
-  font-size: 10.5px;
-  font-weight: 700;
-  font-stretch: 78%;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   color: var(--text-faint);
 }
 
 button {
   font: inherit;
   font-family: Archivo, "Segoe UI", system-ui, sans-serif;
+  font-weight: 550;
   color: inherit;
   border: 1px solid var(--border-strong);
-  background: linear-gradient(var(--bg-panel), var(--bg-raised));
-  box-shadow: var(--bevel);
+  background: var(--bg-panel);
   padding: 7px 14px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, opacity 0.12s, color 0.12s,
-    transform 0.06s;
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease),
+    color 0.15s var(--ease), opacity 0.15s;
 }
 
 button:hover:not(:disabled) {
-  background: linear-gradient(#2a3040, #232833);
-  border-color: #4a5260;
+  background: #232429;
+  border-color: rgb(255 255 255 / 0.18);
 }
 
-/* Buttons press in rather than lighting up: the affordance the game's own
-   controls use. */
 button:active:not(:disabled) {
-  transform: translateY(1px);
-  box-shadow: none;
+  background: #1e1f23;
 }
 
 button:disabled {
@@ -145,27 +128,25 @@ button:disabled {
 }
 
 button.primary {
-  background: linear-gradient(var(--accent-lit), var(--accent));
-  border-color: #2f8d5f;
+  background: var(--accent);
+  border-color: var(--accent);
   color: var(--accent-ink);
   font-weight: 650;
-  box-shadow: var(--bevel), 0 0 18px rgb(63 178 122 / 0.18);
 }
 
 button.primary:hover:not(:disabled) {
-  background: linear-gradient(#6ee0a6, var(--accent-lit));
+  background: var(--accent-lit);
   border-color: var(--accent-lit);
 }
 
 button.ghost {
   background: none;
   border-color: transparent;
-  box-shadow: none;
   color: var(--text-dim);
 }
 
 button.ghost:hover:not(:disabled) {
-  background: rgb(255 255 255 / 0.06);
+  background: var(--bg-hover);
   border-color: transparent;
   color: var(--text);
 }
@@ -174,12 +155,11 @@ button.danger {
   color: var(--danger);
   border-color: transparent;
   background: none;
-  box-shadow: none;
 }
 
 button.danger:hover:not(:disabled) {
-  background: rgb(217 112 95 / 0.12);
-  border-color: rgb(217 112 95 / 0.32);
+  background: rgb(248 113 113 / 0.1);
+  border-color: rgb(248 113 113 / 0.3);
 }
 
 input:not([type="checkbox"]),
@@ -189,12 +169,18 @@ textarea {
   font-family: Archivo, "Segoe UI", system-ui, sans-serif;
   color: var(--text);
   background: var(--bg-inset);
-  box-shadow: var(--well);
-  border: 1px solid #1a1e24;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   padding: 7px 10px;
   width: 100%;
   user-select: text;
+  transition: border-color 0.15s var(--ease);
+}
+
+input:not([type="checkbox"]):hover,
+select:hover,
+textarea:hover {
+  border-color: rgb(255 255 255 / 0.18);
 }
 
 input:focus,
@@ -207,33 +193,31 @@ input:focus,
 select:focus,
 textarea:focus,
 button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid rgb(34 197 94 / 0.45);
   outline-offset: 1px;
 }
 
-/* Checkboxes are slots too: a small well that fills with the accent when it
-   holds something. Styled once here so every one in the app matches. */
 input[type="checkbox"] {
   appearance: none;
   flex: none;
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   margin: 0;
   padding: 0;
-  border: 1px solid #1a1e24;
-  border-radius: 3px;
+  border: 1px solid rgb(255 255 255 / 0.22);
+  border-radius: 4px;
   background: var(--bg-inset);
-  box-shadow: var(--well);
   cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 input[type="checkbox"]:hover {
-  border-color: var(--border-strong);
+  border-color: rgb(255 255 255 / 0.35);
 }
 
 input[type="checkbox"]:checked {
-  background: linear-gradient(var(--accent-lit), var(--accent));
-  border-color: #2f8d5f;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 input[type="checkbox"]:checked::after {
@@ -241,21 +225,18 @@ input[type="checkbox"]:checked::after {
   display: block;
   width: 4px;
   height: 8px;
-  margin: 0 auto;
+  margin: 1px auto 0;
   border: solid var(--accent-ink);
   border-width: 0 2px 2px 0;
-  transform: rotate(42deg) translate(-1px, -1px);
+  transform: rotate(42deg);
 }
 
 label {
   display: block;
-  font-size: 10.5px;
-  font-weight: 700;
-  font-stretch: 78%;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-  margin-bottom: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 6px;
 }
 
 .field + .field {
@@ -296,14 +277,14 @@ label {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #39404a;
-  border-radius: 0;
+  background: rgb(255 255 255 / 0.12);
+  border-radius: 10px;
   border: 3px solid transparent;
   background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #525963;
+  background: rgb(255 255 255 / 0.22);
   background-clip: content-box;
 }
 

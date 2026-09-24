@@ -42,7 +42,7 @@
   .backdrop {
     position: fixed;
     inset: 0;
-    background: rgb(6 8 10 / 0.68);
+    background: rgb(0 0 0 / 0.6);
     backdrop-filter: blur(3px);
     display: grid;
     place-items: center;
@@ -51,15 +51,15 @@
   }
 
   .dialog {
-    background: linear-gradient(var(--bg-panel), var(--bg-raised) 140px);
-    border: 1px solid #0c0e11;
-    border-radius: var(--radius);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow);
     max-width: calc(100vw - 40px);
     max-height: calc(100vh - 60px);
     display: flex;
     flex-direction: column;
-    animation: rise 0.14s ease-out;
+    animation: rise 0.18s var(--ease);
     /* `width` is the starting size, not a cap: a mod list or a log is worth
        more room on a large screen. The drag handle is the browser's own, which
        needs a non-visible overflow to appear — .body does the scrolling, so
@@ -74,18 +74,18 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 14px 14px 14px 18px;
-    border-bottom: 1px solid #0c0e11;
-    box-shadow: 0 1px 0 rgb(255 255 255 / 0.035);
+    padding: 16px 16px 16px 20px;
+    border-bottom: 1px solid var(--border);
   }
 
   header h2 {
+    font-weight: 650;
     font-size: 15px;
     flex: 1;
   }
 
   .body {
-    padding: 18px;
+    padding: 20px;
     overflow-y: auto;
     /* overflow-y on its own computes overflow-x as auto, so any content a few
        pixels too wide draws a scrollbar across the bottom of every dialog.
@@ -97,9 +97,10 @@
     display: flex;
     justify-content: flex-end;
     gap: 8px;
-    padding: 14px 18px;
-    border-top: 1px solid #0c0e11;
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.035);
+    padding: 14px 20px;
+    background: var(--bg-inset);
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    border-top: 1px solid var(--border);
   }
 
   @keyframes fade {
@@ -107,6 +108,6 @@
   }
 
   @keyframes rise {
-    from { opacity: 0; transform: translateY(8px); }
+    from { opacity: 0; transform: translateY(6px) scale(0.985); }
   }
 </style>
