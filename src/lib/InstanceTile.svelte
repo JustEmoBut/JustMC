@@ -41,7 +41,7 @@
     }
   }}
 >
-  <BlockIcon name={instance.name} size={32} fabric={instance.loader !== "vanilla"} />
+  <BlockIcon name={instance.name} size={44} fabric={instance.loader !== "vanilla"} />
   <span class="text">
     <span class="name">{instance.name}</span>
     <span class="version">{instance.mc_version} · {loaderName(instance.loader)}</span>
@@ -52,38 +52,44 @@
 </div>
 
 <style>
-  /* A list row in the sidebar: the icon is the landmark, the name the label,
+  /* A card in the library grid: the icon is the landmark, the name the label,
      and the version a quiet second line. */
   .tile {
+    position: relative;
     display: flex;
-    align-items: center;
-    gap: 10px;
-    min-height: 48px;
-    padding: 7px 10px;
-    border-radius: var(--radius);
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-raised);
     cursor: pointer;
-    transition: background 0.15s var(--ease);
+    transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
   }
 
   .tile:hover {
-    background: var(--bg-hover);
+    background: var(--bg-panel);
+    border-color: var(--border-strong);
   }
 
   .tile.selected {
     background: var(--bg-panel);
-    box-shadow: inset 0 0 0 1px var(--border);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
   }
 
   .tile:focus-visible {
-    outline: 2px solid rgb(34 197 94 / 0.45);
-    outline-offset: -2px;
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
 
   .text {
     display: flex;
     flex-direction: column;
+    gap: 2px;
     min-width: 0;
-    flex: 1;
+    width: 100%;
   }
 
   .name,
@@ -94,8 +100,8 @@
   }
 
   .name {
-    font-size: 13.5px;
-    font-weight: 550;
+    font-size: 14px;
+    font-weight: 600;
   }
 
   .version {
@@ -107,9 +113,11 @@
     color: var(--text-dim);
   }
 
-  /* The only animation in the list, spent on the one thing that is live. */
+  /* The only animation in the grid, spent on the one thing that is live. */
   .live {
-    flex: none;
+    position: absolute;
+    top: 14px;
+    right: 14px;
     width: 8px;
     height: 8px;
     border-radius: 50%;

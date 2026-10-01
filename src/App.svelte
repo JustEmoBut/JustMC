@@ -436,9 +436,9 @@
 </script>
 
 <div class="app">
-  <!-- The sidebar is the launcher's spine: identity at the top, the instances
-       in the middle, who you are and the launcher-wide tools at the bottom. -->
-  <aside class="sidebar">
+  <!-- Top bar: identity, finding an instance, then the launcher-wide tools and
+       who you are on the right; the grid below gets the full width. -->
+  <header class="topbar">
     <div class="brand">
       <div class="mark" aria-hidden="true">
         <span></span><span></span><span></span><span></span>
@@ -451,106 +451,67 @@
       <input bind:value={search} placeholder="Search instances" aria-label="Search instances" />
     </div>
 
-    <div class="list-head">
-      <span class="eyebrow">Instances · {instances.length}</span>
-      <span class="spacer"></span>
-      <select class="sort" bind:value={sort} aria-label="Sort instances">
-        <option value="recent">Recent</option>
-        <option value="name">Name</option>
-        <option value="played">Play time</option>
-      </select>
-      <button
-        class="ghost icon"
-        onclick={() => (showNew = true)}
-        title="New instance"
-        aria-label="New instance"
-      >
-        <Icon name="plus" size={15} />
-      </button>
-    </div>
+    <span class="spacer"></span>
 
-    <div class="list" role="presentation" oncontextmenu={openBackgroundMenu}>
-      {#if visible.length === 0}
-        <p class="list-empty muted">
-          {search ? "Nothing matches that search." : "No instances yet."}
-        </p>
-      {:else}
-        <div role="listbox" aria-label="Instances" tabindex="-1">
-          {#each visible as instance (instance.id)}
-            <InstanceTile
-              {instance}
-              selected={instance.id === selectedId}
-              running={!!busy[instance.id]}
-              onselect={(i) => (selectedId = i.id)}
-              onlaunch={play}
-              onmenu={openMenu}
-            />
-          {/each}
-        </div>
-      {/if}
-    </div>
-
-    <footer class="side-foot">
-      <button class="ghost account" onclick={() => (showAccounts = true)} title="Accounts">
-        {#if activeAccount}
-          <img
-            src="https://api.mineatar.io/face/{activeAccount.id}?scale=8"
-            alt=""
-            width="26"
-            height="26"
-          />
-        {:else}
-          <Icon name="user" />
-        {/if}
-        <span>{activeAccount ? activeAccount.name : "Add account"}</span>
-      </button>
-      <button
-        class="ghost icon"
-        onclick={() => api.openExportsFolder().catch((e) => notify(errorMessage(e), "error"))}
-        title="Exports folder"
-        aria-label="Exports folder"
-      >
-        <Icon name="folder" />
-      </button>
-      <button
-        class="ghost icon"
-        class:on={showLog}
-        onclick={() => (showLog = !showLog)}
-        title="Game output"
-        aria-label="Game output"
-        aria-pressed={showLog}
-      >
-        <Icon name="import" />
-      </button>
-      <button
-        class="ghost icon"
-        onclick={() => (showSettings = true)}
-        title="Settings"
-        aria-label="Settings"
-      >
-        <Icon name="gear" />
-      </button>
-    </footer>
-  </aside>
-
-  <div class="main">
-    <div class="body">
-      {#if selected}
-        <InstancePanel
-          instance={selected}
-          status={busy[selected.id]}
-          onlaunch={play}
-          onrestart={restart}
-          onedit={(i) => (editing = i)}
-          onmods={openContent}
-          onworlds={(i) => (managingWorlds = i)}
-          onservers={(i) => (managingServers = i)}
-          onoptions={(i) => (editingOptions = i)}
-          onscreenshots={(i) => (viewingShots = i)}
-          onexport={(i) => (exporting = i)}
-          onchanged={refreshInstances}
+    <button class="primary new" onclick={() => (showNew = true)}>
+      <Icon name="plus" size={14} />
+      New instance
+    </button>
+    <button
+      class="ghost icon"
+      onclick={() => api.openExportsFolder().catch((e) => notify(errorMessage(e), "error"))}
+      title="Exports folder"
+      aria-label="Exports folder"
+    >
+      <Icon name="folder" />
+    </button>
+    <button
+      class="ghost icon"
+      class:on={showLog}
+      onclick={() => (showLog = !showLog)}
+      title="Game output"
+      aria-label="Game output"
+      aria-pressed={showLog}
+    >
+      <Icon name="import" />
+    </button>
+    <button
+      class="ghost icon"
+      onclick={() => (showSettings = true)}
+      title="Settings"
+      aria-label="Settings"
+    >
+      <Icon name="gear" />
+    </button>
+    <button class="ghost account" onclick={() => (showAccounts = true)} title="Accounts">
+      {#if activeAccount}
+        <img
+          src="https://api.mineatar.io/face/{activeAccount.id}?scale=8"
+          alt=""
+          width="24"
+          height="24"
         />
       {:else}
+        <Icon name="user" />
+      {/if}
+      <span>{activeAccount ? activeAccount.name : "Add account"}</span>
+    </button>
+  </header>
+
+  <div class="body">
+    <main class="library" oncontextmenu={openBackgroundMenu}>
+      <div class="list-head">
+        <h1>Instances</h1>
+        <span class="count data">{instances.length}</span>
+        <span class="spacer"></span>
+        <select class="sort" bind:value={sort} aria-label="Sort instances">
+          <option value="recent">Recent</option>
+          <option value="name">Name</option>
+          <option value="played">Play time</option>
+        </select>
+      </div>
+
+      {#if visible.length === 0}
         <div class="empty">
           <h2>{search ? "No matches" : "No instances yet"}</h2>
           <p class="muted">
@@ -565,38 +526,70 @@
             </button>
           {/if}
         </div>
+      {:else}
+        <div class="grid" role="listbox" aria-label="Instances" tabindex="-1">
+          {#each visible as instance (instance.id)}
+            <InstanceTile
+              {instance}
+              selected={instance.id === selectedId}
+              running={!!busy[instance.id]}
+              onselect={(i) => (selectedId = i.id)}
+              onlaunch={play}
+              onmenu={openMenu}
+            />
+          {/each}
+        </div>
       {/if}
-    </div>
+    </main>
 
-    {#if showLog}
-      <LogView
-        lines={logChoice ? logFileLines : log}
-        logs={logFiles}
-        choice={logChoice}
-        onchoose={openLog}
-        onclose={() => (showLog = false)}
-      />
+    {#if selected}
+      <aside class="panel">
+        <InstancePanel
+          instance={selected}
+          status={busy[selected.id]}
+          onlaunch={play}
+          onrestart={restart}
+          onedit={(i) => (editing = i)}
+          onmods={openContent}
+          onworlds={(i) => (managingWorlds = i)}
+          onservers={(i) => (managingServers = i)}
+          onoptions={(i) => (editingOptions = i)}
+          onscreenshots={(i) => (viewingShots = i)}
+          onexport={(i) => (exporting = i)}
+          onchanged={refreshInstances}
+        />
+      </aside>
     {/if}
+  </div>
 
-    <div class="status data">
-      {#if selected}
-        <span>Minecraft {selected.mc_version}</span>
+  {#if showLog}
+    <LogView
+      lines={logChoice ? logFileLines : log}
+      logs={logFiles}
+      choice={logChoice}
+      onchoose={openLog}
+      onclose={() => (showLog = false)}
+    />
+  {/if}
+
+  <div class="status data">
+    {#if selected}
+      <span>Minecraft {selected.mc_version}</span>
+      <span class="sep">·</span>
+      <span>{loaderName(selected.loader)}</span>
+      <span class="sep">·</span>
+      <span>{selected.memory_mb} MB</span>
+      {#if selected.java_path}
         <span class="sep">·</span>
-        <span>{loaderName(selected.loader)}</span>
-        <span class="sep">·</span>
-        <span>{selected.memory_mb} MB</span>
-        {#if selected.java_path}
-          <span class="sep">·</span>
-          <span>custom Java</span>
-        {/if}
+        <span>custom Java</span>
       {/if}
-      <span class="spacer"></span>
-      {#if totalPlayed}
-        <span>{totalPlayTime(totalPlayed)}</span>
-        <span class="sep">·</span>
-      {/if}
-      <span>{instances.length} {instances.length === 1 ? "instance" : "instances"}</span>
-    </div>
+    {/if}
+    <span class="spacer"></span>
+    {#if totalPlayed}
+      <span>{totalPlayTime(totalPlayed)}</span>
+      <span class="sep">·</span>
+    {/if}
+    <span>{instances.length} {instances.length === 1 ? "instance" : "instances"}</span>
   </div>
 
   <TaskWindow />
@@ -699,27 +692,29 @@
 <style>
   .app {
     display: flex;
+    flex-direction: column;
     height: 100vh;
     background: var(--bg);
   }
 
-  .sidebar {
+  .topbar {
     display: flex;
-    flex-direction: column;
-    gap: 10px;
-    width: 272px;
+    align-items: center;
+    gap: 6px;
+    height: 56px;
     flex: none;
-    padding: 14px 10px 10px;
+    padding: 0 12px 0 16px;
     background: var(--bg-raised);
-    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
   }
 
   .brand {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 4px 8px 6px;
+    margin-right: 18px;
     font-size: 15px;
+    white-space: nowrap;
   }
 
   /* The mark is a 2x2 block face, the same shape the instance icons use --
@@ -749,6 +744,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    width: min(340px, 34vw);
     padding: 0 10px;
     background: var(--bg-inset);
     border: 1px solid var(--border-strong);
@@ -773,31 +769,19 @@
     outline: none;
   }
 
-  .list-head {
+  .new {
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 6px 4px 0 8px;
-  }
-
-  .list-head .eyebrow {
+    gap: 7px;
+    margin-right: 6px;
     white-space: nowrap;
-  }
-
-  .sort {
-    width: auto;
-    padding: 4px 6px;
-    font-size: 12px;
-    border-color: transparent;
-    background: none;
-    color: var(--text-dim);
   }
 
   button.icon {
     display: grid;
     place-items: center;
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     padding: 0;
   }
 
@@ -806,41 +790,15 @@
     background: var(--accent-soft);
   }
 
-  .list {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
-
-  .list > div {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .list-empty {
-    padding: 8px;
-    font-size: 13px;
-  }
-
-  .side-foot {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    padding-top: 10px;
-    border-top: 1px solid var(--border);
-  }
-
   .account {
-    flex: 1;
-    min-width: 0;
     display: flex;
     align-items: center;
-    gap: 9px;
-    padding: 5px 8px;
+    gap: 8px;
+    max-width: 180px;
+    margin-left: 6px;
+    padding: 5px 10px 5px 6px;
     color: var(--text);
-    text-align: left;
+    border: 1px solid var(--border);
   }
 
   .account span {
@@ -851,21 +809,59 @@
 
   .account img {
     flex: none;
-    border-radius: 5px;
+    border-radius: 4px;
     image-rendering: pixelated;
-  }
-
-  .main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
   }
 
   .body {
     flex: 1;
     display: flex;
     min-height: 0;
+  }
+
+  .library {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 24px 28px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .list-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .list-head h1 {
+    font-size: 20px;
+  }
+
+  .count {
+    color: var(--text-faint);
+  }
+
+  .sort {
+    width: auto;
+    padding: 5px 8px;
+    font-size: 12.5px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+    gap: 12px;
+  }
+
+  .panel {
+    display: flex;
+    width: 400px;
+    flex: none;
+    background: var(--bg-raised);
+    border-left: 1px solid var(--border);
   }
 
   .empty {
@@ -938,9 +934,17 @@
     font-size: 16px;
   }
 
-  @media (max-width: 820px) {
-    .sidebar {
-      width: 220px;
+  @media (max-width: 960px) {
+    .panel {
+      width: 340px;
+    }
+
+    .new {
+      display: none;
+    }
+
+    .account span {
+      display: none;
     }
   }
 </style>

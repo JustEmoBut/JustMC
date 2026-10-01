@@ -81,7 +81,7 @@
 
 <section class="detail">
   <header class="hero">
-    <BlockIcon name={instance.name} size={72} fabric={instance.loader !== "vanilla"} />
+    <BlockIcon name={instance.name} size={56} fabric={instance.loader !== "vanilla"} />
     <div class="title">
       <p class="eyebrow">{played(instance.last_played)}</p>
       <h1>{instance.name}</h1>
@@ -218,7 +218,7 @@
     display: flex;
     flex-direction: column;
     gap: 20px;
-    padding: 32px 36px;
+    padding: 24px;
     overflow-y: auto;
     overflow-x: hidden;
   }
@@ -226,7 +226,7 @@
   .hero {
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: 16px;
   }
 
   .title {
@@ -235,7 +235,7 @@
 
   h1 {
     margin: 4px 0 10px;
-    font-size: 28px;
+    font-size: 22px;
     line-height: 1.15;
     overflow-wrap: anywhere;
   }
@@ -281,7 +281,7 @@
 
   /* The one filled control in the window: Play is the reason it exists. */
   .launch {
-    min-width: 160px;
+    flex: 1;
     justify-content: center;
     font-size: 15px;
   }
@@ -321,7 +321,7 @@
 
   .stats {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    grid-template-columns: repeat(2, 1fr);
     gap: 1px;
     margin: 0;
     border: 1px solid var(--border);
@@ -331,8 +331,8 @@
   }
 
   .stats div {
-    padding: 14px 16px;
-    background: var(--bg-raised);
+    padding: 12px 14px;
+    background: var(--bg);
   }
 
   dt {
@@ -356,8 +356,8 @@
 
   .tiles {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-    gap: 10px;
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 
   .tiles button {
@@ -366,9 +366,9 @@
     column-gap: 12px;
     row-gap: 2px;
     align-items: center;
-    padding: 14px 16px;
+    padding: 12px 14px;
     text-align: left;
-    background: var(--bg-raised);
+    background: var(--bg);
     border-color: var(--border);
     border-radius: var(--radius-lg);
     color: var(--text-dim);

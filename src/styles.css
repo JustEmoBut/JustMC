@@ -23,26 +23,28 @@
     U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
-/* Modern minimal dark: flat surfaces separated by hairline borders rather
-   than bevels, one accent, and colour only where it means something -- green
+/* Refined minimal dark (Swiss): slate-tinted flat surfaces separated by
+   hairline borders, one accent, and colour only where it means something -- green
    is "selected" or "the action", never decoration. Token names are shared by
    every component, so a dialog picks the palette up without being touched. */
 :root {
-  --bg: #0b0c0e;
-  --bg-raised: #131417;
-  --bg-panel: #1a1b1f;
-  --bg-inset: #0f1012;
-  --bg-hover: rgb(255 255 255 / 0.05);
-  --border: rgb(255 255 255 / 0.07);
-  --border-strong: rgb(255 255 255 / 0.12);
-  --text: #ededef;
-  --text-dim: #a1a1aa;
-  --text-faint: #7c7c85;
+  --bg: #0b0e14;
+  --bg-raised: #11151d;
+  --bg-panel: #171c26;
+  --bg-inset: #0d1118;
+  --bg-hover: rgb(148 163 184 / 0.08);
+  --bg-press: #1f2532;
+  --border: rgb(148 163 184 / 0.12);
+  --border-strong: rgb(148 163 184 / 0.2);
+  --text: #e8ebf0;
+  --text-dim: #a3adbd;
+  --text-faint: #7d8799;
 
   --accent: #22c55e;
   --accent-lit: #4ade80;
   --accent-soft: rgb(34 197 94 / 0.12);
   --accent-ink: #03170b;
+  --ring: rgb(34 197 94 / 0.5);
   --danger: #f87171;
   /* Reserved for one thing only: a mod with a newer build waiting. */
   --xp: #fbbf24;
@@ -114,12 +116,12 @@ button {
 }
 
 button:hover:not(:disabled) {
-  background: #232429;
-  border-color: rgb(255 255 255 / 0.18);
+  background: var(--bg-press);
+  border-color: var(--border-strong);
 }
 
 button:active:not(:disabled) {
-  background: #1e1f23;
+  background: var(--bg-panel);
 }
 
 button:disabled {
@@ -193,7 +195,7 @@ input:focus,
 select:focus,
 textarea:focus,
 button:focus-visible {
-  outline: 2px solid rgb(34 197 94 / 0.45);
+  outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
 
