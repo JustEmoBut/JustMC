@@ -12,9 +12,13 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
+
+/// The label Tauri gives the window `tauri.conf.json` declares without one.
+const MAIN_WINDOW: &str = "main";
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 /// Instances with a game process attached, each mapped to the channel that
@@ -54,6 +58,42 @@ impl RunningGuard {
 impl Drop for RunningGuard {
     fn drop(&mut self) {
         RUNNING.lock().unwrap().remove(&self.0);
+    }
+}
+
+/// Set while the launcher window is closed for a running game. Closing it, not
+/// minimising, is what releases the webview's memory (~170 MB private), so the
+/// app has to outlive its last window and rebuild it once every game is gone.
+static WINDOW_CLOSED: AtomicBool = AtomicBool::new(false);
+
+/// Whether an exit request is only the window going away for a game.
+pub fn window_closed_for_game() -> bool {
+    WINDOW_CLOSED.load(Ordering::SeqCst)
+}
+
+fn close_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+        // Raised first: destroying the last window asks the app to exit, and
+        // the exit handler has to see why.
+        WINDOW_CLOSED.store(true, Ordering::SeqCst);
+        if let Err(e) = window.destroy() {
+            WINDOW_CLOSED.store(false, Ordering::SeqCst);
+            eprintln!("Could not close the launcher window: {e}");
+        }
+    }
+}
+
+/// Rebuild the window from its config once no game is left running.
+fn reopen_window(app: &AppHandle) {
+    if !RUNNING.lock().unwrap().is_empty() || !WINDOW_CLOSED.swap(false, Ordering::SeqCst) {
+        return;
+    }
+    // `tauri.conf.json` declares exactly the one window this was.
+    let config = &app.config().app.windows[0];
+    if let Err(e) = tauri::WebviewWindowBuilder::from_config(app, config).and_then(|b| b.build()) {
+        // Nothing left to show an error in, and nothing to come back to.
+        eprintln!("Could not reopen the launcher window: {e}");
+        app.exit(1);
     }
 }
 
@@ -525,6 +565,11 @@ pub async fn launch(
     let guard = _guard;
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
     guard.armed(stop_tx);
+    // Before the supervisor exists, so a game that dies at once still finds
+    // the flag raised and brings the window back.
+    if crate::settings::load().await.minimise_on_play {
+        close_window(app);
+    }
     tokio::spawn(async move {
         let _guard = guard; // released when the process exits, not when launch returns
         let pumps = async {
@@ -563,6 +608,8 @@ pub async fn launch(
             }
         }
         let _ = app_handle.emit("game-exited", Exited { instance: id, code });
+        drop(_guard); // out of RUNNING first, or the window waits for this game
+        reopen_window(&app_handle);
     });
 
     Ok(())

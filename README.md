@@ -53,7 +53,7 @@ Chromium is bundled.
 - Java detection matched to each version's required major, and automatic
   download of Mojang's own runtime when the machine has none
 - Total play time per instance, and launcher settings: the memory, Java and JVM
-  arguments a new instance starts with, and whether the window minimises while
+  arguments a new instance starts with, and whether the window closes while
   the game runs
 - Live game log with error highlighting, plus the game's own old logs and
   crash reports; copying redacts session tokens and usernames

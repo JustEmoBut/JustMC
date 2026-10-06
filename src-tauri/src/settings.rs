@@ -29,7 +29,8 @@ pub struct Settings {
     pub java_path: String,
     /// Extra JVM arguments a new instance is created with.
     pub jvm_args: String,
-    /// Minimise the launcher window once a game is actually running.
+    /// Close the launcher window once a game is actually running, reopening it
+    /// when the game exits. The name predates that: minimising freed nothing.
     pub minimise_on_play: bool,
 }
 

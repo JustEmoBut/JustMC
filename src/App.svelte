@@ -1,7 +1,6 @@
 <script lang="ts">
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
   import * as actions from "./lib/actions";
   import {
     api,
@@ -44,11 +43,7 @@
   /** How the grid is ordered; "recent" is what the backend already hands over. */
   let sort = $state<"recent" | "name" | "played">("recent");
 
-  /**
-   * Launcher-wide preferences. Held here because `play` and the game-exit
-   * listener both read `minimise_on_play`, and loaded once rather than per
-   * launch — the settings dialog hands back what it saved.
-   */
+  /** Launcher-wide preferences, loaded once; the settings dialog hands back what it saved. */
   let settings = $state<SettingsData | null>(null);
 
   let showNew = $state(false);
@@ -190,7 +185,6 @@
           notify(`${name} exited with code ${e.payload.code}. Check the log.`, "error");
           showLog = true;
         }
-        if (settings?.minimise_on_play) restoreWindow();
         refreshInstances();
       }),
     ];
@@ -279,13 +273,6 @@
       await api.launchInstance(instance.id, selectedAccount, quickPlay);
       busy[instance.id] = "Running";
       showLog = true;
-      // Only once the process is actually up: a launch that fails must leave
-      // the window where the user can read the error.
-      if (settings?.minimise_on_play) {
-        // Reported rather than swallowed: this is a permission-gated call, and
-        // a silent rejection is exactly how it went unnoticed before.
-        getCurrentWindow().minimize().catch((e) => notify(errorMessage(e), "error"));
-      }
       await refreshInstances();
     } catch (e) {
       delete busy[instance.id];
@@ -415,16 +402,6 @@
         { label: "Settings", icon: "gear", action: () => (showSettings = true) },
       ],
     };
-  }
-
-  async function restoreWindow() {
-    const window = getCurrentWindow();
-    try {
-      await window.unminimize();
-      await window.setFocus();
-    } catch (e) {
-      notify(errorMessage(e), "error");
-    }
   }
 
   async function confirmDelete() {

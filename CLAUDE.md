@@ -124,7 +124,7 @@ directories. See `paths.rs`.
 
 `<root>/settings.json` holds the only preferences that belong to neither an
 instance nor an account: what a **new** instance starts with (memory, Java, JVM
-args) and whether the window minimises while a game runs. Saving them never
+args) and whether the window closes while a game runs. Saving them never
 touches an existing instance — that is what the instance dialog is for.
 
 Missing or unreadable falls back to defaults rather than erroring, and the
@@ -132,6 +132,16 @@ struct is `#[serde(default)]`, so a file from an older or newer build still
 loads. The default heap is half the machine's RAM clamped to 2–8 GB, not a
 constant: a flat 4 GB is refused outright by `launch` on an 8 GB machine and is
 needlessly timid on a large one.
+
+**The window closes for a game; it does not minimise.** The webview is ~95%
+of the launcher's memory (measured: ~170 MB private across six WebView2
+processes against 5 MB for the Rust side), and minimising frees none of it.
+With `minimise_on_play` set (the name predates the change), `launch` destroys
+the window right after the spawn, `WINDOW_CLOSED` makes the `ExitRequested`
+handler in `lib.rs` keep the app alive, and the supervisor rebuilds the window
+from `tauri.conf.json` once `RUNNING` is empty. The rebuilt UI starts fresh —
+no live log, no exit toast; the run's output is in `logs/latest.log`. All of it
+is backend-side because the frontend no longer exists when the game ends.
 
 **Window calls are permission-gated.** `minimize`, `unminimize` and `setFocus`
 are *not* in `core:window:default` — only the read-only `is-minimized` kind is.

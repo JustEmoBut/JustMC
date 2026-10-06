@@ -748,6 +748,16 @@ pub fn run() {
             get_settings,
             save_settings,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running JustLauncher");
+        .build(tauri::generate_context!())
+        .expect("error while running JustLauncher")
+        .run(|_, event| {
+            // `code: None` is the last window going away. While that was the
+            // launcher stepping aside for a game, the game is still supervised
+            // from here and the window comes back when it ends.
+            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = event {
+                if launch::window_closed_for_game() {
+                    api.prevent_exit();
+                }
+            }
+        });
 }

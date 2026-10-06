@@ -137,11 +137,11 @@
     <label for="g-minimise">While a game is running</label>
     <label class="check">
       <input id="g-minimise" type="checkbox" bind:checked={draft.minimise_on_play} />
-      Minimise the launcher
+      Close the launcher window
     </label>
     <p class="faint">
-      Restored when the game exits. The window is minimised rather than hidden,
-      so it stays in the taskbar if the game never reports an exit.
+      Frees the memory the window uses. It reopens when the game exits; a game
+      that hangs has to be ended before the launcher comes back.
     </p>
   </div>
 
