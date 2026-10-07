@@ -152,9 +152,10 @@ runtimes are where the gigabytes are anyway.
 
 ## Instance archives (`pack.rs`, `mrpack.rs`)
 
-Two zip formats, kept apart because only the extension distinguishes them:
-`import_archive` in `lib.rs` is the single place that dispatches, so a picker,
-a drop and any future caller all route the same way.
+Three zip formats. `import_archive` in `lib.rs` is the single place that
+dispatches, so a picker, a drop and any future caller all route the same way:
+`.mrpack` by extension, then a `.zip` holding `manifest.json` is CurseForge's,
+and anything else is our own.
 
 - `pack.rs` is **our own** format: the instance config plus its whole
   `.minecraft`. Libraries and assets are deliberately excluded — they live in
@@ -170,6 +171,19 @@ a drop and any future caller all route the same way.
   one wins when two are listed; `env.client == "unsupported"` marks a
   server-only file and is the only reason to skip one. A failure part-way
   deletes the instance rather than leaving something that looks playable.
+
+- `curseforge.rs` is **CurseForge's**: `manifest.json` lists project and file
+  ids only, so every file is resolved through the Core API (`POST /v1/mods/files`
+  for URLs and hashes, `POST /v1/mods` for the class that picks the folder:
+  6 mods, 12 resourcepacks, 6552 shaderpacks). It needs the user's key from
+  `settings.json`; none is shipped, and the API's terms forbid caching its
+  replies. Verified against live packs: a file whose author forbids third-party
+  downloads comes back with `downloadUrl: null`, and those — plus worlds and
+  datapacks, which a pack folder cannot hold — are returned as `Missing` with
+  the project's `/download/<fileId>` page instead of failing the import. That
+  list rides on the import reply as a flattened `missing` field, so callers
+  still read it as an `Instance`. Hash `algo` 1 is SHA-1; 2 is MD5 and unused.
+  `live_pack_resolves_and_downloads` (ignored; `CF_API_KEY`, `CF_PACK`) proves it.
 
 Changing an instance's Minecraft version is `update_instance`'s job, not the
 UI's: it clears `loader_version` and `installed` whenever `mc_version` moves, so
@@ -239,9 +253,34 @@ Project descriptions are author-written markdown, so they are rendered through
 neither is ever called without the other. It is the only place in the app that
 uses `{@html}`.
 
-CurseForge is not a second provider and cannot become one cheaply: its API needs
-a per-launcher key that an open source build cannot ship, and some authors
-forbid third-party downloads outright.
+**CurseForge is a second source, in Modrinth's shapes.** Every browsing command
+takes a `mods::Source`; `curseforge.rs` answers search, project, versions and
+files as `modrinth::Hit`/`Project`/`Version` with its numeric ids as strings, so
+the frontend types and `install_mod`'s dependency loop serve both. Each detail
+below was checked against the live API:
+
+- **No relevance or followers.** `sort_field` maps both onto popularity (2);
+  downloads is 6, newest 11, updated 3.
+- **Categories are ids, fetched per class** (`mod_categories`, never cached),
+  and nested: a top-level one's `parentCategoryId` is the class id itself, so
+  only other parents prefix the name ("Addons: Create"). Search filters with
+  `categoryIds=[id]`; the picker swaps Modrinth's fixed slugs for this list.
+- **`index + pageSize` may not pass 10 000**; the API answers 400, so `search`
+  stops there and caps the reported total.
+- **The description is HTML, not markdown.** It goes through the same
+  `marked` + DOMPurify path, which passes HTML through to the sanitiser.
+- **`/mods/{id}/files` takes one `modLoaderType`**, unlike search's list, so a
+  Quilt instance sees only Quilt builds in the version picker (`ponytail:`).
+- **A blocked file has an empty URL.** `install_mod` opens the project page and
+  fails with a message rather than downloading nothing.
+- **Identity is the fingerprint, not a hash.** CurseForge matches files by
+  MurmurHash2 (seed 1) over the bytes minus tab, LF, CR and space —
+  `curseforge::fingerprint`, verified against a real jar's `fileFingerprint`.
+  `mods::list` computes it beside the SHA-1 from the same read, and `owners`
+  is the one place that asks either catalogue which installed file is which
+  project; "installed", "remove the old build" and the Modrinth/CurseForge/
+  Local tags (`mod_sources`) all go through it. Update checks stay Modrinth
+  only.
 
 ## Screenshots (`screenshots.rs`)
 

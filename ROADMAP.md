@@ -103,7 +103,8 @@ cleared on 2026-08-22.
 
 ## Not planned
 
-CurseForge (API key and download restrictions), world creation and renaming,
+CurseForge update checks (browsing, installing and pack import exist; updates
+still go through Modrinth), world creation and renaming,
 custom themes, Prism/MultiMC instance import, i18n.
 
 LiteLoader, the original's fifth loader: its last release was 1.12.2 in 2017.

@@ -8,8 +8,8 @@ A Minecraft launcher: Rust + Tauri 2 backend, Svelte 5 + Vite frontend. A
 clean-slate rewrite of a Qt/C++ Prism Launcher fork; it does **not** read
 Prism/MultiMC data. Scope is vanilla, Fabric, Quilt, Forge and NeoForge
 launching, plus the content folders of an instance, installing mods from
-Modrinth and importing a Modrinth modpack — see README for what is deliberately
-out of scope.
+Modrinth or CurseForge and importing a modpack from either — see README for what is
+deliberately out of scope.
 
 ## Commands
 
@@ -124,7 +124,8 @@ directories. See `paths.rs`.
 
 `<root>/settings.json` holds the only preferences that belong to neither an
 instance nor an account: what a **new** instance starts with (memory, Java, JVM
-args) and whether the window closes while a game runs. Saving them never
+args), whether the window closes while a game runs, and the user's own
+CurseForge API key (plain text; empty turns CurseForge off). Saving them never
 touches an existing instance — that is what the instance dialog is for.
 
 Missing or unreadable falls back to defaults rather than erroring, and the

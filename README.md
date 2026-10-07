@@ -46,8 +46,14 @@ Chromium is bundled.
 - Export an instance as a Modrinth `.mrpack` any launcher can install — jars
   Modrinth can serve become downloads, the rest overrides, and the player's
   own worlds, screenshots, keybinds and server list stay out
-- Export an instance to a zip; import one, or a `.mrpack`, from Add Instance
-  or by dropping it on the window
+- Export an instance to a zip; import one, a `.mrpack` or a CurseForge modpack
+  zip, from Add Instance or by dropping it on the window
+- Browse CurseForge beside Modrinth — mods, resource packs and shaders — and
+  install with required dependencies; CurseForge and its modpacks need your own
+  API key in Settings, and files whose authors forbid third-party downloads are
+  not fetched, their pages are opened instead
+- The installed list tags each file Modrinth, CurseForge or Local, by asking
+  both catalogues which ones they recognise
 - Duplicate an instance with its worlds and configs; change an existing
   instance's Minecraft version
 - Java detection matched to each version's required major, and automatic
@@ -75,14 +81,17 @@ Chromium is bundled.
 
 ## Not included
 
-CurseForge, world creation and renaming, custom themes. Planned work — Quick
-Play, skin management and more — lives in the [roadmap](ROADMAP.md).
+World creation and renaming, custom themes, update checks for files only
+CurseForge knows. Planned work — Quick Play, skin management and more —
+lives in the [roadmap](ROADMAP.md).
 
-CurseForge is absent for a reason rather than an oversight: its API needs a
-per-launcher key that cannot be shipped in an open source build, and it lets
-authors forbid third-party downloads, which turns "install" into "open a browser
-and do it yourself" for a slice of the catalogue. Modrinth needs no key and
-allows all of it.
+CurseForge is the second catalogue, not the first. Its API needs a
+per-launcher key, which no build of this launcher ships: the user supplies their
+own Core API key (console.curseforge.com) in Settings, and without one the
+CurseForge tab stays disabled. Its terms forbid caching what the API returns,
+and it lets authors forbid third-party downloads, which turns "install" into
+"open a browser and do it yourself" for a slice of the catalogue. Modrinth needs
+no key and allows all of it, so it stays the default.
 
 ## Building
 
@@ -125,6 +134,7 @@ src-tauri/src/
   settings.rs       launcher-wide preferences and new-instance defaults
   pack.rs           instance export/import archives, duplication
   mrpack.rs         Modrinth modpack (.mrpack) import and export
+  curseforge.rs     CurseForge browsing, fingerprints and modpack import
   mods.rs           mods, resourcepacks, shaderpacks: list, enable, delete
   modrinth.rs       Modrinth search and jar resolution
   forge.rs          Forge/NeoForge installer profiles and jar patching
