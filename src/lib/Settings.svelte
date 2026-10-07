@@ -146,6 +146,12 @@
   </div>
 
   <div class="field section">
+    <label for="g-cfkey">CurseForge API key</label>
+    <input id="g-cfkey" type="password" bind:value={draft.curseforge_api_key} autocomplete="off" spellcheck="false" />
+    <p class="faint">A Core API key from console.curseforge.com. Leave empty to keep CurseForge off.</p>
+  </div>
+
+  <div class="field section">
     <label for="g-storage">Shared storage</label>
     <p class="faint">
       Versions, assets and Java runtimes are shared between instances and

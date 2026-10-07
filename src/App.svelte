@@ -226,22 +226,21 @@
 
     const packs = paths.filter((p) => /\.(zip|mrpack)$/i.test(p));
     if (packs.length === 0) {
-      notify("Drop an exported instance .zip or a Modrinth .mrpack to import it.", "error");
+      notify("Drop an exported instance .zip, a CurseForge .zip or a Modrinth .mrpack to import it.", "error");
       return;
     }
     for (const path of packs) {
-      // A .mrpack downloads its whole mod list, so it needs the progress
-      // window an exported .zip does not.
-      const pack = path.toLowerCase().endsWith(".mrpack");
-      if (pack) task.begin("Importing pack");
+      // A pack downloads its whole mod list, so it needs the progress window.
+      // A .zip may be a CurseForge pack, which only the backend can tell.
+      task.begin("Importing pack");
       try {
         const imported = await api.importInstance(path);
-        notify(`Imported ${imported.name}.`);
+        actions.reportImport(imported);
         selectedId = imported.id;
       } catch (e) {
         notify(errorMessage(e), "error");
       } finally {
-        if (pack) task.end();
+        task.end();
       }
     }
     await refreshInstances();

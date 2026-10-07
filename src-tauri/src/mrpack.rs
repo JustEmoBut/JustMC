@@ -147,7 +147,7 @@ async fn fill(app: &AppHandle, inst: &Instance, index: Index, archive: &Path) ->
 
     let archive = archive.to_path_buf();
     let dest = game_dir.clone();
-    tokio::task::spawn_blocking(move || extract_overrides(&archive, &dest))
+    tokio::task::spawn_blocking(move || extract_overrides(&archive, &dest, &OVERRIDES))
         .await
         .map_err(|e| Error::msg(e.to_string()))??;
 
@@ -404,7 +404,7 @@ fn read_index(archive: &Path) -> Result<Index> {
 }
 
 /// Copy the pack's own config files into the game directory.
-fn extract_overrides(archive: &Path, game_dir: &Path) -> Result<()> {
+pub(crate) fn extract_overrides(archive: &Path, game_dir: &Path, prefixes: &[&str]) -> Result<()> {
     let mut zip = zip::ZipArchive::new(std::fs::File::open(archive)?)?;
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i)?;
@@ -412,7 +412,7 @@ fn extract_overrides(archive: &Path, game_dir: &Path) -> Result<()> {
         // cannot write outside the instance.
         let Some(name) = entry.enclosed_name() else { continue };
         let name = name.to_string_lossy().replace('\\', "/");
-        let Some(relative) = OVERRIDES.iter().find_map(|p| name.strip_prefix(p)) else {
+        let Some(relative) = prefixes.iter().find_map(|p| name.strip_prefix(p)) else {
             continue;
         };
         if entry.is_dir() || relative.is_empty() {

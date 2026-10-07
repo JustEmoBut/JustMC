@@ -33,7 +33,19 @@ export interface Settings {
   java_path: string;
   jvm_args: string;
   minimise_on_play: boolean;
+  /** Empty means CurseForge is off. */
+  curseforge_api_key: string;
 }
+
+/** A pack file CurseForge will not let a launcher download. */
+export interface MissingFile {
+  file_name: string;
+  /** The CurseForge page to download it from by hand. */
+  url: string;
+}
+
+/** An import's reply: the instance, plus what the user still has to fetch. */
+export type Imported = Instance & { missing: MissingFile[] };
 
 export interface Instance {
   id: string;
@@ -191,6 +203,15 @@ export interface ModFile {
   dir: boolean;
 }
 
+/** Which catalogue a project is browsed in, or recognises an installed file. */
+export type ModSource = "modrinth" | "curseforge";
+
+/** A CurseForge category; `id` is what the search filter takes. */
+export interface ModCategory {
+  id: string;
+  name: string;
+}
+
 export interface ModHit {
   project_id: string;
   slug: string;
@@ -222,6 +243,8 @@ export interface ModProject {
   source_url: string | null;
   issues_url: string | null;
   wiki_url: string | null;
+  /** Set for a CurseForge project; a Modrinth page is built from the slug. */
+  page_url: string | null;
 }
 
 export interface ModVersion {
@@ -261,10 +284,10 @@ export const api = {
   deleteInstance: (id: string) => invoke<void>("delete_instance", { id }),
   openInstanceFolder: (id: string) => invoke<void>("open_instance_folder", { id }),
   exportInstance: (id: string) => invoke<string>("export_instance", { id }),
-  importInstance: (path: string) => invoke<Instance>("import_instance", { path }),
+  importInstance: (path: string) => invoke<Imported>("import_instance", { path }),
   /** For a file the webview picked: it hands over content, never a path. */
   importArchiveBytes: (name: string, bytes: Uint8Array) =>
-    invoke<Instance>("import_archive_bytes", { name, bytes }),
+    invoke<Imported>("import_archive_bytes", { name, bytes }),
   duplicateInstance: (id: string, name: string) =>
     invoke<Instance>("duplicate_instance", { id, name }),
   openExportsFolder: () => invoke<void>("open_exports_folder"),
@@ -339,7 +362,8 @@ export const api = {
     category: string | null,
     offset: number,
     kind: ModKind,
-    loader: Loader
+    loader: Loader,
+    source: ModSource
   ) =>
     invoke<ModSearchPage>("search_mods", {
       query,
@@ -349,13 +373,25 @@ export const api = {
       offset,
       kind,
       loader,
+      source,
     }),
-  modProject: (id: string) => invoke<ModProject>("mod_project", { id }),
-  modVersions: (project: string, mcVersion: string, kind: ModKind, loader: Loader) =>
-    invoke<ModVersion[]>("mod_versions", { project, mcVersion, kind, loader }),
+  modProject: (id: string, source: ModSource) =>
+    invoke<ModProject>("mod_project", { id, source }),
+  modVersions: (
+    project: string,
+    mcVersion: string,
+    kind: ModKind,
+    loader: Loader,
+    source: ModSource
+  ) => invoke<ModVersion[]>("mod_versions", { project, mcVersion, kind, loader, source }),
   /** Installs the file plus, for mods, its required dependencies; returns every file added. */
-  installMod: (id: string, kind: ModKind, project: string, versionId: string | null) =>
-    invoke<string[]>("install_mod", { id, kind, project, versionId }),
+  installMod: (
+    id: string,
+    kind: ModKind,
+    project: string,
+    versionId: string | null,
+    source: ModSource
+  ) => invoke<string[]>("install_mod", { id, kind, project, versionId, source }),
 
   /** Search Modrinth's modpack catalogue; a pack brings its own version and loader. */
   searchModpacks: (query: string, sort: string, category: string | null, offset: number) =>
@@ -371,9 +407,14 @@ export const api = {
   openUrl: (url: string) => invoke<void>("open_url", { url }),
   addModFile: (id: string, kind: ModKind, path: string) =>
     invoke<string>("add_mod_file", { id, kind, path }),
-  /** Modrinth project ids of what is already installed, matched by SHA-1. */
-  installedModProjects: (id: string, kind: ModKind) =>
-    invoke<string[]>("installed_mod_projects", { id, kind }),
+  /** Project ids of what is already installed, in `source`'s numbering. */
+  installedModProjects: (id: string, kind: ModKind, source: ModSource) =>
+    invoke<string[]>("installed_mod_projects", { id, kind, source }),
+  /** CurseForge's categories for one folder; Modrinth's are a fixed list. */
+  modCategories: (kind: ModKind) => invoke<ModCategory[]>("mod_categories", { kind }),
+  /** File name -> the catalogues that recognise it; absent means neither does. */
+  modSources: (id: string, kind: ModKind) =>
+    invoke<Record<string, ModSource[]>>("mod_sources", { id, kind }),
   checkModUpdates: (id: string, kind: ModKind) =>
     invoke<ModUpdate[]>("check_mod_updates", { id, kind }),
   updateMod: (id: string, kind: ModKind, file: string, versionId: string) =>

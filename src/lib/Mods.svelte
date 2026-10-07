@@ -4,10 +4,12 @@
     api,
     errorMessage,
     type Instance,
+    type ModCategory,
     type ModFile,
     type ModKind,
     type ModHit,
     type ModProject,
+    type ModSource,
     type ModUpdate,
     type ModVersion,
   } from "./api";
@@ -81,21 +83,41 @@
   };
 
   let tab = $state<"installed" | "browse">("installed");
+  /** Which catalogue Browse searches. Project ids differ between the two, so
+      everything keyed by one is reset when this changes. */
+  let source = $state<ModSource>("modrinth");
+  /** CurseForge needs the user's own key; without one its tab is disabled. */
+  let curseforgeReady = $state(false);
+  api
+    .getSettings()
+    .then((s) => (curseforgeReady = s.curseforge_api_key.trim() !== ""))
+    .catch((e) => notify(errorMessage(e), "error"));
 
   // Installed
   let mods = $state<ModFile[]>([]);
   let updates = $state<ModUpdate[]>([]);
   let checking = $state(false);
   let selection = $state<Set<string>>(new Set());
-  /** Modrinth project ids already in the folder, resolved by hash. */
+  /** Project ids of the browsed catalogue already in the folder, by hash. */
   let installedIds = $state<Set<string>>(new Set());
+  /** File name -> catalogues that recognise it. Absent means a local file. */
+  let origins = $state<Record<string, ModSource[]>>({});
   /** Filters the folder listing; local only, nothing is re-read. */
   let filter = $state("");
 
   // Browse
   let query = $state("");
   let sort = $state("relevance");
+  /** A Modrinth slug, or a CurseForge category id; empty is every category. */
   let category = $state("");
+  /** CurseForge's categories for the open folder, fetched when browsed. */
+  let cfCategories = $state<ModCategory[]>([]);
+  /** The picker's options as (value, label) for whichever catalogue is open. */
+  const categoryOptions = $derived<[string, string][]>(
+    source === "curseforge"
+      ? cfCategories.map((c) => [c.id, c.name])
+      : CATEGORIES[kind].map((c) => [c, label(c)])
+  );
   let hideInstalled = $state(true);
   let hits = $state<ModHit[]>([]);
   let total = $state(0);
@@ -134,6 +156,7 @@
   // carried over would describe the folder the user just left.
   $effect(() => {
     kind;
+    source;
     untrack(() => {
       selection = new Set();
       picked = new Set();
@@ -141,7 +164,8 @@
       selected = null;
       hits = [];
       total = 0;
-      if (!CATEGORIES[kind].includes(category)) category = "";
+      // A Modrinth slug means nothing to CurseForge and the other way round.
+      category = source === "modrinth" && CATEGORIES[kind].includes(category) ? category : "";
     });
   });
 
@@ -151,7 +175,27 @@
     sort;
     category;
     kind;
+    source;
     if (tab === "browse") search(true);
+  });
+
+  // The installed set is in the browsed catalogue's ids.
+  $effect(() => {
+    source;
+    untrack(() => markInstalled());
+  });
+
+  // Not cached: CurseForge's terms forbid keeping what its API returns.
+  $effect(() => {
+    if (source !== "curseforge") return;
+    const forKind = kind;
+    cfCategories = [];
+    api
+      .modCategories(forKind)
+      .then((list) => {
+        if (forKind === kind) cfCategories = list;
+      })
+      .catch((e) => notify(errorMessage(e), "error"));
   });
 
   // The installed set arrives after the first search, and hiding it can empty
@@ -178,10 +222,21 @@
     } catch (e) {
       notify(errorMessage(e), "error");
     }
-    // Best effort: the folder still lists without the network, the browser
-    // just cannot mark anything installed.
+    await markInstalled();
+    // Best effort, like the installed set: without the network every file
+    // simply reads as local.
     try {
-      installedIds = new Set(await api.installedModProjects(instance.id, kind));
+      origins = await api.modSources(instance.id, kind);
+    } catch {
+      origins = {};
+    }
+  }
+
+  // Best effort: the folder still lists without the network, the browser
+  // just cannot mark anything installed.
+  async function markInstalled() {
+    try {
+      installedIds = new Set(await api.installedModProjects(instance.id, kind, source));
     } catch {
       installedIds = new Set();
     }
@@ -221,7 +276,8 @@
           category || null,
           collected.length,
           kind,
-          instance.loader
+          instance.loader,
+          source
         );
         if (id !== run) return; // a newer search replaced this one
 
@@ -248,8 +304,14 @@
     selected = null;
     versions = [];
     try {
-      selected = await api.modProject(hit.project_id);
-      versions = await api.modVersions(hit.project_id, instance.mc_version, kind, instance.loader);
+      selected = await api.modProject(hit.project_id, source);
+      versions = await api.modVersions(
+        hit.project_id,
+        instance.mc_version,
+        kind,
+        instance.loader,
+        source
+      );
     } catch (e) {
       notify(errorMessage(e), "error");
     }
@@ -278,7 +340,7 @@
       const title = hits.find((h) => h.project_id === project)?.title ?? project;
       task.step(title, i);
       try {
-        files += (await api.installMod(instance.id, kind, project, null)).length;
+        files += (await api.installMod(instance.id, kind, project, null, source)).length;
       } catch (e) {
         failed.push(title);
         notify(errorMessage(e), "error");
@@ -298,7 +360,7 @@
     installing = project;
     task.begin(`Installing ${selected?.title ?? noun(1)}`);
     try {
-      const files = await api.installMod(instance.id, kind, project, versionId);
+      const files = await api.installMod(instance.id, kind, project, versionId, source);
       notify(
         files.length > 1
           ? `Installed ${files.length} files, dependencies included.`
@@ -502,6 +564,11 @@
             <strong>{mod.name}</strong>
             <span class="faint data">
               {mod.version || "unknown version"} · {mod.dir ? "folder" : size(mod.size)}
+              {#each origins[mod.file] ?? [] as o (o)}
+                <span class="origin">{o === "modrinth" ? "Modrinth" : "CurseForge"}</span>
+              {:else}
+                <span class="origin local" title="Neither Modrinth nor CurseForge recognises this file">Local</span>
+              {/each}
             </span>
           </span>
           <span class="file data faint">{mod.file}</span>
@@ -535,7 +602,7 @@
           {#if mods.length}
             Nothing matches “{filter.trim()}”.
           {:else}
-            No {noun(2)} yet. Browse Modrinth, or drop a
+            No {noun(2)} yet. Browse Modrinth or CurseForge, or drop a
             {kind === "mods" ? ".jar" : ".zip"} on this window.
           {/if}
         </li>
@@ -543,6 +610,26 @@
     </ul>
   {:else}
     <div class="filters">
+      <div class="segmented" role="tablist" aria-label="Catalogue">
+        <button
+          role="tab"
+          aria-selected={source === "modrinth"}
+          class:active={source === "modrinth"}
+          onclick={() => (source = "modrinth")}
+        >
+          Modrinth
+        </button>
+        <button
+          role="tab"
+          aria-selected={source === "curseforge"}
+          class:active={source === "curseforge"}
+          disabled={!curseforgeReady}
+          title={curseforgeReady ? "" : "Add a CurseForge API key in Settings"}
+          onclick={() => (source = "curseforge")}
+        >
+          CurseForge
+        </button>
+      </div>
       <input
         class="query"
         bind:value={query}
@@ -556,8 +643,8 @@
       </select>
       <select bind:value={category} aria-label="Category">
         <option value="">All categories</option>
-        {#each CATEGORIES[kind] as c (c)}
-          <option value={c}>{label(c)}</option>
+        {#each categoryOptions as [value, text] (value)}
+          <option {value}>{text}</option>
         {/each}
       </select>
       <label class="check">
@@ -680,9 +767,10 @@
           <div class="links">
             <button
               class="ghost"
-              onclick={() => api.openUrl(`https://modrinth.com/mod/${selected!.slug}`)}
+              onclick={() =>
+                api.openUrl(selected!.page_url ?? `https://modrinth.com/mod/${selected!.slug}`)}
             >
-              Modrinth page
+              {source === "curseforge" ? "CurseForge page" : "Modrinth page"}
             </button>
             {#if selected.source_url}
               <button class="ghost" onclick={() => api.openUrl(selected!.source_url!)}>
@@ -1096,6 +1184,24 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--text-dim);
+  }
+
+  /* Where an installed file is known from; a quiet tag after its size. */
+  .origin {
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 100px;
+    background: rgb(255 255 255 / 0.055);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  .origin.local {
+    background: none;
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
   }
 
   /* Three facts, set as a readout rather than a sentence, because they are the

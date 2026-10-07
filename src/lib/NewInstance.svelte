@@ -15,6 +15,7 @@
   import { renderMarkdown } from "./markdown";
   import { task } from "./task.svelte";
   import { notify } from "./toast.svelte";
+  import { reportImport } from "./actions";
 
   let { onclose, oncreated }: { onclose: () => void; oncreated: () => Promise<void> } = $props();
 
@@ -143,7 +144,7 @@
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const imported = await api.importArchiveBytes(file.name, bytes);
-      notify(`Imported ${imported.name}.`);
+      reportImport(imported);
       await oncreated();
       onclose();
     } catch (e) {
@@ -210,7 +211,7 @@
     pack = null;
     packBuilds = [];
     try {
-      pack = await api.modProject(hit.project_id);
+      pack = await api.modProject(hit.project_id, "modrinth");
       packBuilds = await api.packVersions(hit.project_id);
     } catch (e) {
       notify(errorMessage(e), "error");

@@ -2,7 +2,7 @@
 //!
 //! Everything else the launcher stores belongs to one instance or one account.
 //! These are the few things that do not: what a *new* instance should start
-//! with, and how the window behaves while a game runs.
+//! with, how the window behaves while a game runs, and the CurseForge key.
 //!
 //! Missing or unreadable is not an error — a launcher that will not start
 //! because a preferences file got truncated is worse than one that starts with
@@ -32,6 +32,9 @@ pub struct Settings {
     /// Close the launcher window once a game is actually running, reopening it
     /// when the game exits. The name predates that: minimising freed nothing.
     pub minimise_on_play: bool,
+    /// The user's own CurseForge Core API key; empty means CurseForge is off.
+    // ponytail: plain settings.json, move to `keyring` if the key ever matters more
+    pub curseforge_api_key: String,
 }
 
 impl Default for Settings {
@@ -41,6 +44,7 @@ impl Default for Settings {
             java_path: String::new(),
             jvm_args: String::new(),
             minimise_on_play: false,
+            curseforge_api_key: String::new(),
         }
     }
 }

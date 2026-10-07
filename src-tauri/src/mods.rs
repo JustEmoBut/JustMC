@@ -15,6 +15,7 @@ use crate::download::{self, Job};
 use crate::error::{Error, Result};
 use crate::instance::{self, Loader};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::AppHandle;
 
@@ -81,6 +82,15 @@ impl Kind {
     }
 }
 
+/// Where a browsed project comes from, and which catalogue recognises a file.
+#[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Source {
+    #[default]
+    Modrinth,
+    Curseforge,
+}
+
 #[derive(Serialize, Clone)]
 pub struct ModFile {
     /// File name as it sits on disk, `.disabled` suffix included.
@@ -92,6 +102,9 @@ pub struct ModFile {
     pub size: u64,
     /// SHA-1 of the jar, which is what Modrinth matches files by.
     pub sha1: String,
+    /// CurseForge's fingerprint of it; 0 for a folder.
+    #[serde(skip)]
+    pub fingerprint: u32,
     /// The icon `fabric.mod.json` names, inlined as a `data:` URI. Read from
     /// the jar itself so an installed mod needs no network to show artwork.
     pub icon: Option<String>,
@@ -131,11 +144,13 @@ pub(crate) fn checked_name(file: &str) -> Result<&str> {
     Ok(file)
 }
 
-fn sha1_of(path: &std::path::Path) -> Option<String> {
+/// SHA-1, which Modrinth matches files by, and the fingerprint CurseForge
+/// does, from one read of the file.
+fn hashes_of(path: &std::path::Path) -> Option<(String, u32)> {
     use sha1::{Digest, Sha1};
-    let mut hasher = Sha1::new();
-    hasher.update(std::fs::read(path).ok()?);
-    Some(hex::encode(hasher.finalize()))
+    let bytes = std::fs::read(path).ok()?;
+    let sha1 = hex::encode(Sha1::digest(&bytes));
+    Some((sha1, crate::curseforge::fingerprint(&bytes)))
 }
 
 /// Icons live inside the jar and only ever reach the frontend as a `data:`
@@ -251,7 +266,7 @@ fn read_icon<R: std::io::Read + std::io::Seek>(
 }
 
 /// Name, version, icon, SHA-1: everything `list` reads out of one archive.
-type JarInfo = (String, String, Option<String>, String);
+type JarInfo = (String, String, Option<String>, String, u32);
 
 /// Reading an archive means hashing all of it and unzipping an icon out of it,
 /// and `list` runs on every tab open, install and toggle. Cache on the identity
@@ -285,7 +300,8 @@ fn cached_jar(
     let file = path.file_name().unwrap_or_default().to_string_lossy();
     let (name, version, icon) = read_metadata(path, kind)
         .unwrap_or_else(|| (file.trim_end_matches(DISABLED).to_string(), String::new(), None));
-    let info = (name, version, icon, sha1_of(path).unwrap_or_default());
+    let (sha1, fingerprint) = hashes_of(path).unwrap_or_default();
+    let info = (name, version, icon, sha1, fingerprint);
     let mut cache = cache.lock().unwrap();
     if cache.len() >= CACHE_LIMIT {
         cache.clear();
@@ -324,6 +340,7 @@ pub async fn list(id: &str, kind: Kind) -> Result<Vec<ModFile>> {
                     icon,
                     size: 0,
                     sha1: String::new(),
+                    fingerprint: 0,
                     dir: true,
                 });
             }
@@ -333,9 +350,9 @@ pub async fn list(id: &str, kind: Kind) -> Result<Vec<ModFile>> {
             }
             let meta = e.metadata().ok();
             let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-            let (name, version, icon, sha1) =
+            let (name, version, icon, sha1, fingerprint) =
                 cached_jar(&e.path(), size, meta.and_then(|m| m.modified().ok()), kind);
-            Some(ModFile { file, name, version, icon, enabled, size, sha1, dir: false })
+            Some(ModFile { file, name, version, icon, enabled, size, sha1, fingerprint, dir: false })
         })
         .collect();
 
@@ -409,38 +426,72 @@ pub async fn add_file(id: &str, kind: Kind, source: &std::path::Path) -> Result<
     Ok(name)
 }
 
-/// The Modrinth project ids of the jars already in this instance's folder, so
-/// the browser can mark them installed. Jars from anywhere else are simply not
-/// in the answer.
-pub async fn installed_projects(id: &str, kind: Kind) -> Result<Vec<String>> {
-    let hashes: Vec<String> = list(id, kind)
-        .await?
-        .into_iter()
-        .map(|m| m.sha1)
-        .filter(|h| !h.is_empty())
-        .collect();
-    let known = crate::modrinth::version_files(&hashes).await?;
-    let mut projects: Vec<String> = known.into_values().map(|v| v.project_id).collect();
+/// File name -> the project `source` says it is, for the files it recognises:
+/// Modrinth by SHA-1, CurseForge by fingerprint. A hand-built jar is in
+/// neither answer.
+async fn owners(installed: &[ModFile], source: Source) -> Result<HashMap<String, String>> {
+    // A folder, or a file that could not be read, has nothing to match on.
+    let files = installed.iter().filter(|m| !m.sha1.is_empty());
+    Ok(match source {
+        Source::Modrinth => {
+            let hashes: Vec<String> = files.clone().map(|m| m.sha1.clone()).collect();
+            let known = crate::modrinth::version_files(&hashes).await?;
+            files
+                .filter_map(|m| Some((m.file.clone(), known.get(&m.sha1)?.project_id.clone())))
+                .collect()
+        }
+        Source::Curseforge => {
+            let Some(key) = crate::curseforge::configured_key().await else {
+                return Ok(HashMap::new());
+            };
+            let prints: Vec<u32> = files.clone().map(|m| m.fingerprint).collect();
+            let known = crate::curseforge::identify(&key, &prints).await?;
+            files
+                .filter_map(|m| Some((m.file.clone(), known.get(&m.fingerprint)?.clone())))
+                .collect()
+        }
+    })
+}
+
+/// The project ids `source` recognises in this instance's folder, so the
+/// browser can mark them installed.
+pub async fn installed_projects(id: &str, kind: Kind, source: Source) -> Result<Vec<String>> {
+    let mut projects: Vec<String> = owners(&list(id, kind).await?, source).await?.into_values().collect();
     projects.sort();
     projects.dedup();
     Ok(projects)
+}
+
+/// File name -> every catalogue that recognises it, so the installed list can
+/// say where a file came from. Best effort per catalogue: one being offline or
+/// switched off leaves its label off rather than failing the list.
+pub async fn sources(id: &str, kind: Kind) -> Result<HashMap<String, Vec<Source>>> {
+    let installed = list(id, kind).await?;
+    let mut found: HashMap<String, Vec<Source>> = HashMap::new();
+    for source in [Source::Modrinth, Source::Curseforge] {
+        for file in owners(&installed, source).await.unwrap_or_default().into_keys() {
+            found.entry(file).or_default().push(source);
+        }
+    }
+    Ok(found)
 }
 
 /// Delete jars belonging to `project`, except `keep`. Installing a second
 /// build of a mod that is already there leaves two jars in the folder, and
 /// Fabric refuses to start with duplicates -- so the old one goes before the
 /// new one lands.
-pub async fn remove_other_versions(id: &str, kind: Kind, project: &str, keep: &str) -> Result<()> {
+pub async fn remove_other_versions(
+    id: &str,
+    kind: Kind,
+    source: Source,
+    project: &str,
+    keep: &str,
+) -> Result<()> {
     let installed = list(id, kind).await?;
-    let hashes: Vec<String> = installed
-        .iter()
-        .map(|m| m.sha1.clone())
-        .filter(|h| !h.is_empty())
-        .collect();
-    let known = crate::modrinth::version_files(&hashes).await?;
+    let known = owners(&installed, source).await?;
 
     for m in installed {
-        let same_project = known.get(&m.sha1).is_some_and(|v| v.project_id == project);
+        let same_project = known.get(&m.file).is_some_and(|p| p == project);
         // Compare against the enabled name: a disabled jar of the same mod is
         // still a duplicate once the new one is enabled.
         if same_project && m.file.trim_end_matches(DISABLED) != keep {

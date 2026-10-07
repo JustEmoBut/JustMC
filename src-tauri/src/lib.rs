@@ -9,6 +9,7 @@ pub mod pack;
 pub mod launch;
 pub mod mojang;
 pub mod mrpack;
+pub mod curseforge;
 
 pub mod logs;
 pub mod mods;
@@ -129,21 +130,40 @@ async fn export_instance(id: String) -> Result<String> {
     Ok(path.to_string_lossy().into_owned())
 }
 
+/// An imported instance, plus the pack files the user still has to download by
+/// hand. Flattened so the reply still reads as an `Instance` on the wire.
+#[derive(serde::Serialize)]
+struct Imported {
+    #[serde(flatten)]
+    instance: Instance,
+    missing: Vec<curseforge::Missing>,
+}
+
 #[tauri::command]
-async fn import_instance(app: tauri::AppHandle, path: String) -> Result<Instance> {
+async fn import_instance(app: tauri::AppHandle, path: String) -> Result<Imported> {
     import_archive(&app, std::path::Path::new(&path)).await
 }
 
-/// A Modrinth pack is a zip too, so the extension is what tells the two formats
-/// apart before either parser is handed the file.
-async fn import_archive(app: &tauri::AppHandle, path: &std::path::Path) -> Result<Instance> {
+/// A Modrinth pack is a zip too, so the extension is what tells it apart; a
+/// CurseForge pack and our own export are both `.zip`, so its manifest does.
+async fn import_archive(app: &tauri::AppHandle, path: &std::path::Path) -> Result<Imported> {
+    let plain = |instance| Imported { instance, missing: Vec::new() };
     if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("mrpack")) {
-        return mrpack::import(app, path).await;
+        return mrpack::import(app, path).await.map(plain);
+    }
+    let owned = path.to_path_buf();
+    if tokio::task::spawn_blocking(move || curseforge::is_pack(&owned))
+        .await
+        .map_err(|e| Error::msg(e.to_string()))?
+    {
+        let (instance, missing) = curseforge::import(app, path).await?;
+        return Ok(Imported { instance, missing });
     }
     let path = path.to_path_buf();
     tokio::task::spawn_blocking(move || pack::import(&path))
         .await
         .map_err(|e| Error::msg(e.to_string()))?
+        .map(plain)
 }
 
 /// Import an archive the webview's file picker handed over as bytes.
@@ -155,7 +175,7 @@ async fn import_archive_bytes(
     app: tauri::AppHandle,
     name: String,
     bytes: Vec<u8>,
-) -> Result<Instance> {
+) -> Result<Imported> {
     // The name comes from the file the user picked; it only decides the temp
     // file, but it is still a name being joined onto a path.
     let staged = std::env::temp_dir().join(format!("justlauncher-{}", mods::checked_name(&name)?));
@@ -378,7 +398,11 @@ async fn search_mods(
     offset: u32,
     kind: mods::Kind,
     loader: Loader,
+    source: mods::Source,
 ) -> Result<modrinth::SearchPage> {
+    if source == mods::Source::Curseforge {
+        return curseforge::search(&query, &mc_version, &sort, category.as_deref(), offset, kind, loader).await;
+    }
     // Only mods narrow by loader; a resource pack or shader has none to filter
     // on, and adding one there returns an empty catalogue.
     let loaders: &[&str] = if kind == mods::Kind::Mods { loader.mod_loaders() } else { &[] };
@@ -462,8 +486,11 @@ async fn export_instance_mrpack(id: String) -> Result<String> {
 }
 
 #[tauri::command]
-async fn mod_project(id: String) -> Result<modrinth::Project> {
-    modrinth::project(&id).await
+async fn mod_project(id: String, source: mods::Source) -> Result<modrinth::Project> {
+    match source {
+        mods::Source::Modrinth => modrinth::project(&id).await,
+        mods::Source::Curseforge => curseforge::project(&id).await,
+    }
 }
 
 #[tauri::command]
@@ -472,8 +499,12 @@ async fn mod_versions(
     mc_version: String,
     kind: mods::Kind,
     loader: Loader,
+    source: mods::Source,
 ) -> Result<Vec<modrinth::Version>> {
-    modrinth::versions(&project, &mc_version, kind.loaders(loader)).await
+    match source {
+        mods::Source::Modrinth => modrinth::versions(&project, &mc_version, kind.loaders(loader)).await,
+        mods::Source::Curseforge => curseforge::versions(&project, &mc_version, kind, loader).await,
+    }
 }
 
 /// Every build of a pack, unfiltered: each one names its own Minecraft
@@ -495,14 +526,28 @@ async fn install_mod(
     kind: mods::Kind,
     project: String,
     version_id: Option<String>,
+    source: mods::Source,
 ) -> Result<Vec<String>> {
     let instance = instance::get(&id).await?;
-    let version = match version_id {
-        Some(v) => modrinth::version(&v).await?,
-        None => {
-            modrinth::latest_version(&project, &instance.mc_version, kind.loaders(instance.loader))
-                .await?
+    // Both catalogues answer in Modrinth's shapes, so one loop serves both;
+    // only where a version comes from differs.
+    let latest = |project: String| {
+        let instance = instance.clone();
+        async move {
+            match source {
+                mods::Source::Modrinth => {
+                    modrinth::latest_version(&project, &instance.mc_version, kind.loaders(instance.loader)).await
+                }
+                mods::Source::Curseforge => {
+                    curseforge::latest_version(&project, &instance.mc_version, kind, instance.loader).await
+                }
+            }
         }
+    };
+    let version = match (version_id, source) {
+        (Some(v), mods::Source::Modrinth) => modrinth::version(&v).await?,
+        (Some(v), mods::Source::Curseforge) => curseforge::file(&project, &v).await?,
+        (None, _) => latest(project.clone()).await?,
     };
 
     let mut installed = Vec::new();
@@ -517,7 +562,18 @@ async fn install_mod(
             continue;
         }
         if let Some(jar) = version.jar() {
-            mods::remove_other_versions(&id, kind, &version.project_id, &jar.filename).await?;
+            // CurseForge leaves the URL empty when the author forbids launchers
+            // from downloading the file: the page is the only way to get it.
+            if jar.url.is_empty() {
+                let page = curseforge::page(&version.project_id).await?;
+                let _ = open_url(app.clone(), page).await;
+                return Err(Error::msg(format!(
+                    "{}'s author only allows downloading it from CurseForge's site; its page was opened. Put the file in the {} folder.",
+                    jar.filename,
+                    kind.folder()
+                )));
+            }
+            mods::remove_other_versions(&id, kind, source, &version.project_id, &jar.filename).await?;
             mods::fetch(
                 &app,
                 &id,
@@ -536,10 +592,7 @@ async fn install_mod(
         for dep in version.dependencies.iter().filter(|d| d.dependency_type == "required") {
             let resolved = match (&dep.version_id, &dep.project_id) {
                 (Some(v), _) => modrinth::version(v).await,
-                (None, Some(p)) => {
-                    modrinth::latest_version(p, &instance.mc_version, kind.loaders(instance.loader))
-                        .await
-                }
+                (None, Some(p)) => latest(p.clone()).await,
                 (None, None) => continue,
             };
             // A dependency with no build for this Minecraft version must not
@@ -573,11 +626,27 @@ async fn add_mod_file(id: String, kind: mods::Kind, path: String) -> Result<Stri
     mods::add_file(&id, kind, std::path::Path::new(&path)).await
 }
 
-/// Modrinth project ids of what is already installed, for marking search
-/// results as installed.
+/// Project ids of what is already installed, in `source`'s numbering, for
+/// marking search results as installed.
 #[tauri::command]
-async fn installed_mod_projects(id: String, kind: mods::Kind) -> Result<Vec<String>> {
-    mods::installed_projects(&id, kind).await
+async fn installed_mod_projects(id: String, kind: mods::Kind, source: mods::Source) -> Result<Vec<String>> {
+    mods::installed_projects(&id, kind, source).await
+}
+
+/// CurseForge's categories for one folder. Modrinth's are a fixed list the
+/// frontend carries itself.
+#[tauri::command]
+async fn mod_categories(kind: mods::Kind) -> Result<Vec<curseforge::Category>> {
+    curseforge::categories(kind).await
+}
+
+/// Which catalogues recognise each installed file, keyed by file name.
+#[tauri::command]
+async fn mod_sources(
+    id: String,
+    kind: mods::Kind,
+) -> Result<std::collections::HashMap<String, Vec<mods::Source>>> {
+    mods::sources(&id, kind).await
 }
 
 #[tauri::command]
@@ -736,6 +805,8 @@ pub fn run() {
             add_mod_file,
             open_url,
             installed_mod_projects,
+            mod_sources,
+            mod_categories,
             check_mod_updates,
             update_mod,
             list_accounts,

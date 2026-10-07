@@ -339,7 +339,7 @@ pub async fn run(app: &AppHandle, stage: &str, jobs: Vec<Job>) -> Result<()> {
     Ok(())
 }
 
-fn client() -> Result<reqwest::Client> {
+pub(crate) fn client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
         .user_agent(concat!("JustLauncher/", env!("CARGO_PKG_VERSION")))
         .build()?)
@@ -349,7 +349,7 @@ fn client() -> Result<reqwest::Client> {
 /// or search reply is one request on the critical path of everything, so a
 /// single blip there fails a whole step; `RequestBuilder::try_clone` decides
 /// whether a body can even be re-sent (ours always can: plain JSON).
-async fn send(request: reqwest::RequestBuilder) -> Result<reqwest::Response> {
+pub(crate) async fn send(request: reqwest::RequestBuilder) -> Result<reqwest::Response> {
     // Every attempt but the last goes through a clone; the last one sends the
     // request itself, so a body that cannot be cloned still gets its one shot.
     for attempt in 1..ATTEMPTS {

@@ -1,4 +1,4 @@
-import { api, errorMessage, type Instance, type ModKind } from "./api";
+import { api, errorMessage, type Imported, type Instance, type ModKind } from "./api";
 import { notify } from "./toast.svelte";
 
 export async function openFolder(instance: Instance) {
@@ -41,4 +41,19 @@ export async function deleteInstance(instance: Instance) {
   } catch (e) {
     notify(errorMessage(e), "error");
   }
+}
+
+/** Toast an import and open the page of every file the pack could not fetch. */
+export function reportImport(imported: Imported) {
+  if (imported.missing.length === 0) {
+    notify(`Imported ${imported.name}.`);
+    return;
+  }
+  // ponytail: opens one tab per file; a list dialog if packs block many
+  const names = imported.missing.map((m) => m.file_name).join(", ");
+  notify(
+    `Imported ${imported.name}, but ${imported.missing.length} file(s) must be downloaded by hand into the matching folder: ${names}`,
+    "error",
+  );
+  for (const m of imported.missing) api.openUrl(m.url).catch((e) => notify(errorMessage(e), "error"));
 }

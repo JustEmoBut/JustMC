@@ -1,10 +1,8 @@
 //! Searching Modrinth, resolving a project to a downloadable jar, and asking
 //! which installed jars have newer builds.
 //!
-//! Read-only and unauthenticated: the public v2 API needs no key. CurseForge
-//! is deliberately absent -- it requires a per-launcher API key and forbids
-//! third-party downloads for some projects, so it cannot be a drop-in second
-//! provider. See README.
+//! Read-only and unauthenticated: the public v2 API needs no key. Its types
+//! double as the browser's wire format: `curseforge.rs` answers in them too.
 
 use crate::download;
 use crate::error::{Error, Result};
@@ -49,6 +47,10 @@ pub struct Project {
     pub source_url: Option<String>,
     pub issues_url: Option<String>,
     pub wiki_url: Option<String>,
+    /// The project's page when it is not on Modrinth; Modrinth's is built
+    /// from the slug, so it never sends one.
+    #[serde(default)]
+    pub page_url: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -228,7 +230,7 @@ pub async fn updates(
 
 /// Percent-encode a query string component. The whole alphabet we send is
 /// ASCII, so this stays a few lines instead of a dependency.
-fn urlencode(s: &str) -> String {
+pub(crate) fn urlencode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
