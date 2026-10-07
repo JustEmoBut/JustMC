@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "A small, fast Minecraft launcher",
   "type": "module",
-  "license": "GPL-3.0-only",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
