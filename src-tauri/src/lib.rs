@@ -898,6 +898,31 @@ fn list_java() -> Vec<java::JavaInstall> {
 pub fn run() {
     *STARTUP_LAUNCH.lock().unwrap() = shortcut::launch_arg(std::env::args().skip(1));
     tauri::Builder::default()
+        // First, as the plugin requires. A second start -- a shortcut clicked
+        // while the launcher is open -- must not become a second launcher: two
+        // of them would each think an instance is free and run it twice over
+        // one `.minecraft`.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            use tauri::{Emitter, Manager};
+            let request = shortcut::launch_arg(args.into_iter().skip(1));
+            match app.get_webview_window("main") {
+                Some(window) => {
+                    if let Err(e) = window.unminimize().and_then(|_| window.set_focus()) {
+                        eprintln!("Could not bring the launcher forward: {e}");
+                    }
+                    if let Some(id) = request {
+                        let _ = app.emit("launch-request", id);
+                    }
+                }
+                // The window is closed for a running game; the rebuilt UI
+                // asks `startup_launch` once that game ends.
+                None => {
+                    if request.is_some() {
+                        *STARTUP_LAUNCH.lock().unwrap() = request;
+                    }
+                }
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(match updater_pubkey() {
             Some(key) => tauri_plugin_updater::Builder::new().pubkey(key).build(),

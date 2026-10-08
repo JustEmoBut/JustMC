@@ -108,12 +108,7 @@
     // lists are in, exactly as the Play button would.
     Promise.all([refreshInstances(), refreshAccounts()])
       .then(() => api.startupLaunch())
-      .then((id) => {
-        if (!id) return;
-        const instance = instances.find((i) => i.id === id);
-        if (instance) play(instance);
-        else notify(`The shortcut points at an instance that no longer exists (${id}).`, "error");
-      })
+      .then((id) => id && launchById(id))
       .catch((e) => notify(errorMessage(e), "error"));
     api.getSettings().then((s) => (settings = s));
 
@@ -122,6 +117,8 @@
       // the label, the window renders whatever is running.
       listen<Progress>("install-progress", (e) => task.report(e.payload)),
       listen<{ line: string }>("game-log", (e) => appendLine(e.payload.line)),
+      // A shortcut clicked while the launcher was already open.
+      listen<string>("launch-request", (e) => launchById(e.payload)),
       listen<{ instance: string; code: number }>("game-exited", (e) => {
         delete busy[e.payload.instance];
         const instance = instances.find((i) => i.id === e.payload.instance);
@@ -200,6 +197,14 @@
       }
     }
     await refreshInstances();
+  }
+
+  /** Launch on behalf of a desktop shortcut, which knows only the id. */
+  function launchById(id: string) {
+    const instance = instances.find((i) => i.id === id);
+    if (!instance) notify(`The shortcut points at an instance that no longer exists (${id}).`, "error");
+    else if (busy[id]) notify(`${instance.name} is already running.`);
+    else play(instance);
   }
 
   /** Stop the game and start it again once the process is actually gone. */
