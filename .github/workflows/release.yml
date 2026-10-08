@@ -1,35 +1,41 @@
-# Builds the signed Windows installer when a version tag is
-# pushed, and attaches them with `latest.json` -- the file the launcher's
-# self-update reads from releases/latest -- to a draft release. Publishing the
-# draft is what makes it the update every install sees.
+# Builds the signed Windows installer and attaches it, with `latest.json` --
+# the file the launcher's self-update reads from releases/latest -- to a draft
+# release tagged v<version>. Publishing the draft is what makes it the update
+# every install sees.
 #
-# The tag must match `version` in tauri.conf.json (and Cargo.toml): the updater
-# compares that number, not the tag.
+# Started by hand from main (`gh workflow run release.yml`), not by a tag push:
+# GitHub lets a run read caches saved on its own ref or on main, never on
+# another tag, so a tag-triggered release always compiled from scratch. Run
+# from main, each release reuses the last one's compiled dependencies. The
+# action creates the tag itself, from `version` in tauri.conf.json.
 
 name: release
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
-# A re-pushed tag replaces the run in flight rather than racing it for the
-# same release.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: true
 
 jobs:
-  # Windows only, by choice: the launcher is released for Windows, and each
-  # build is one long fat-LTO compile. Linux and macOS still build locally.
+  # Windows only, by choice: the launcher is released for Windows. Linux and
+  # macOS still build locally.
   build:
+    if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
     timeout-minutes: 45
     env:
       CARGO_INCREMENTAL: 0
       CARGO_TERM_COLOR: always
+      # Thin LTO over 16 codegen units instead of the profile's fat LTO and
+      # one unit. Measured locally: a cached build 202 s -> 88 s, for an exe
+      # 6.2 MB -> 7.7 MB. Local `tauri build` keeps the smaller profile.
+      CARGO_PROFILE_RELEASE_LTO: thin
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 16
     steps:
       - uses: actions/checkout@v4
 
@@ -43,8 +49,6 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      # A tag can only read caches saved on itself or on main, so this mostly
-      # pays off on a re-run of the same tag.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -60,8 +64,9 @@ jobs:
           # Optional: without it the release offers offline accounts only.
           JUSTLAUNCHER_MSA_CLIENT_ID: ${{ secrets.JUSTLAUNCHER_MSA_CLIENT_ID }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: JustLauncher ${{ github.ref_name }}
+          # The action replaces __VERSION__ with tauri.conf.json's version.
+          tagName: v__VERSION__
+          releaseName: JustLauncher v__VERSION__
           releaseBody: See the assets below to download and install this version.
           releaseDraft: true
           prerelease: false

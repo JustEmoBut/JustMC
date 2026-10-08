@@ -131,12 +131,16 @@ Without it, offline accounts still work (single player and LAN only).
 Releases are signed with a [minisign key](https://v2.tauri.app/plugin/updater/#signing-updates);
 the public half is `plugins.updater.pubkey` in `tauri.conf.json`, so every
 build verifies what it installs. `.github/workflows/release.yml` does the release: bump
-`version` in `tauri.conf.json` and `Cargo.toml`, then push a matching tag.
+`version` in `tauri.conf.json` and `Cargo.toml`, push to `main`, then start it
+from `main` — it tags `v<version>` itself:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+gh workflow run release.yml --ref main
 ```
+
+It is started by hand rather than by a tag push so it can reuse the compiled
+dependencies cached on `main` (a tag cannot read another tag's cache), and it
+builds with thin LTO: about a 1.5 MB larger exe for a much shorter build.
 
 It builds the Windows (NSIS) installer, signs it, and attaches it with
 `latest.json` to a **draft** release; publishing the draft is what makes it the
