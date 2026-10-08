@@ -130,16 +130,24 @@ Without it, offline accounts still work (single player and LAN only).
 
 Releases are signed with a [minisign key](https://v2.tauri.app/plugin/updater/#signing-updates);
 a build that carries no public key reports no updates rather than install one
-it cannot verify. Generate the pair once, keep the private key out of the
-repository, and build releases with both halves:
+it cannot verify. `.github/workflows/release.yml` does the release: bump
+`version` in `tauri.conf.json` and `Cargo.toml`, then push a matching tag.
 
 ```bash
-pnpm tauri signer generate -w ~/.tauri/justlauncher.key
-JUSTLAUNCHER_UPDATER_PUBKEY="<contents of justlauncher.key.pub>" TAURI_SIGNING_PRIVATE_KEY="<contents of justlauncher.key>" pnpm tauri build --config '{"bundle":{"createUpdaterArtifacts":true}}'
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
-Attach the bundles, their `.sig` files and a `latest.json` to a GitHub release;
-the launcher reads `releases/latest/download/latest.json`.
+It builds Windows, Linux and macOS bundles, signs them, and attaches them with
+`latest.json` to a **draft** release; publishing the draft is what makes it the
+update installs see (`releases/latest/download/latest.json`). It reads the
+repository secrets `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`,
+`JUSTLAUNCHER_UPDATER_PUBKEY` and, optionally, `JUSTLAUNCHER_MSA_CLIENT_ID`. The
+key pair came from `pnpm tauri signer generate`; losing the private key or its
+password means no later release can update an existing install.
+
+A signed build by hand needs the same variables and
+`pnpm tauri build --config src-tauri/tauri.release.conf.json`.
 
 ## Layout
 
