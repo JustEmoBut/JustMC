@@ -37,6 +37,7 @@ fn instance(mc_version: &str, loader: Loader, loader_version: &str) -> Instance 
         installed: false,
         account_id: String::new(),
         env: String::new(),
+        pack: None,
     }
 }
 

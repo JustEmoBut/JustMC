@@ -118,6 +118,23 @@ pub struct Instance {
     /// the user types, and `env_vars` is the one place that reads it.
     #[serde(default)]
     pub env: String,
+    /// The Modrinth pack this instance was installed from, when it was one
+    /// Modrinth recognises; what lets a newer build be offered.
+    #[serde(default)]
+    pub pack: Option<PackSource>,
+}
+
+/// Where a pack instance came from, and what its index put on disk.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PackSource {
+    pub project: String,
+    pub version_id: String,
+    /// The build's own label ("1.4.2"), for showing what is installed.
+    pub version_number: String,
+    /// Game-folder paths the pack's index installed: what an update may
+    /// delete when the next build drops them. Overrides are deliberately not
+    /// listed -- they are configs the player may have changed since.
+    pub files: Vec<String>,
 }
 
 /// Only for an instance.json that predates the field; a new instance takes
@@ -273,6 +290,7 @@ pub async fn create(
         installed: false,
         account_id: String::new(),
         env: String::new(),
+        pack: None,
     };
     tokio::fs::create_dir_all(instance.game_dir()).await?;
     instance.save().await?;
@@ -344,6 +362,7 @@ pub(crate) mod tests {
             installed: false,
             account_id: String::new(),
             env: String::new(),
+            pack: None,
         }
     }
 

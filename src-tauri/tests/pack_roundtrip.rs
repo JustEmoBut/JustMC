@@ -46,6 +46,7 @@ fn sample() -> Instance {
         installed: true,
         account_id: String::new(),
         env: String::new(),
+        pack: None,
     }
 }
 

@@ -97,6 +97,11 @@ fn reopen_window(app: &AppHandle) {
     }
 }
 
+/// Whether this instance has a game process, or is installing for one.
+pub fn is_running(id: &str) -> bool {
+    RUNNING.lock().unwrap().contains_key(id)
+}
+
 /// Ask a running instance's game process to stop. Returns whether one was
 /// listening; a game that ignores the request is killed outright.
 pub fn stop(id: &str) -> bool {

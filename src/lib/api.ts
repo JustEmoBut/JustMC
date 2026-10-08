@@ -73,6 +73,16 @@ export interface Instance {
   account_id: string;
   /** Extra environment for the game and its hooks, one KEY=VALUE per line. */
   env: string;
+  /** The Modrinth pack this instance was installed from, when one was recognised. */
+  pack: PackSource | null;
+}
+
+export interface PackSource {
+  project: string;
+  version_id: string;
+  version_number: string;
+  /** Game-folder paths the pack installed; an update may remove these. */
+  files: string[];
 }
 
 /** A server to join or a save to open on launch; Minecraft calls it Quick Play. */
@@ -420,6 +430,11 @@ export const api = {
   /** Downloads the pack's `.mrpack` and imports it as a new instance. */
   installModpack: (project: string, versionId: string | null) =>
     invoke<Instance>("install_modpack", { project, versionId }),
+  /** The newest build of the instance's pack when it is not the installed one. */
+  checkPackUpdate: (id: string) => invoke<ModVersion | null>("check_pack_update", { id }),
+  /** Moves the instance to another build of its pack; returns the saved instance. */
+  updatePack: (id: string, versionId: string) =>
+    invoke<Instance>("update_pack", { id, versionId }),
   /** Exports in Modrinth's `.mrpack` format; returns the archive path. */
   exportMrpack: (id: string) => invoke<string>("export_instance_mrpack", { id }),
   /** Opens an http(s) link in the user's browser; other schemes are refused. */

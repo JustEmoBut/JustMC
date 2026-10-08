@@ -12,7 +12,7 @@
 
 use crate::download::{self, Job};
 use crate::error::{Error, Result};
-use crate::instance::{self, Instance, Loader};
+use crate::instance::{self, Instance, Loader, PackSource};
 use crate::paths;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -114,19 +114,147 @@ pub async fn import(app: &AppHandle, archive: &Path) -> Result<Instance> {
 
     // From here on a failure leaves a half-built instance, so remove it rather
     // than leaving something that looks playable and is not.
-    match fill(app, &inst, index, &path).await {
-        Ok(()) => Ok(inst),
+    let files = match fill(app, &inst, index, &path).await {
+        Ok(files) => files,
         Err(e) => {
             let _ = instance::delete(&inst.id).await;
-            Err(e)
+            return Err(e);
         }
+    };
+
+    // Which Modrinth build this archive is, asked by its hash, so a picked
+    // file is recognised exactly like a browsed one. Best effort: a pack
+    // Modrinth does not host, or no connection, only means no update offers.
+    let mut inst = inst;
+    if let Some(version) = identify(&path).await {
+        inst.pack = Some(PackSource {
+            project: version.project_id,
+            version_id: version.id,
+            version_number: version.version_number,
+            files,
+        });
+        inst.save().await?;
     }
+    Ok(inst)
 }
 
-async fn fill(app: &AppHandle, inst: &Instance, index: Index, archive: &Path) -> Result<()> {
+async fn identify(archive: &Path) -> Option<crate::modrinth::Version> {
+    use sha1::{Digest, Sha1};
+    let sha1 = hex::encode(Sha1::digest(tokio::fs::read(archive).await.ok()?));
+    crate::modrinth::version_files(std::slice::from_ref(&sha1)).await.ok()?.remove(&sha1)
+}
+
+/// Download a pack build's `.mrpack` to a temp file. The caller removes it.
+pub async fn fetch(app: &AppHandle, version: &crate::modrinth::Version) -> Result<PathBuf> {
+    let file = version.jar().ok_or_else(|| Error::msg("That pack build has no file."))?;
+    let archive = std::env::temp_dir().join(format!("justlauncher-{}.mrpack", version.id));
+    // A leftover from an interrupted install would be accepted on its size
+    // alone, so the download starts from an empty slot.
+    let _ = tokio::fs::remove_file(&archive).await;
+    download::run(
+        app,
+        "Pack",
+        vec![Job {
+            url: file.url.clone(),
+            path: archive.clone(),
+            sha1: file.hashes.sha1.clone(),
+            size: Some(file.size),
+        }],
+    )
+    .await?;
+    Ok(archive)
+}
+
+/// The newest release of the pack an instance came from, when it is not the
+/// one installed. Modrinth lists versions newest first.
+pub async fn newer(inst: &Instance) -> Result<Option<crate::modrinth::Version>> {
+    let Some(pack) = &inst.pack else { return Ok(None) };
+    let all = crate::modrinth::all_versions(&pack.project).await?;
+    let latest = all.iter().find(|v| v.version_type == "release").or_else(|| all.first());
+    Ok(latest.filter(|v| v.id != pack.version_id).cloned())
+}
+
+/// Move a pack instance to another build of its pack, keeping the player's
+/// own files.
+///
+/// The new build's files are downloaded first and the ones only the old
+/// build listed are deleted after, so a failed download leaves the instance
+/// on its old build with, at worst, some new jars beside the old ones, and
+/// running the update again finishes it. Overrides are written over, as every
+/// launcher does: a pack's configs are part of the build. Worlds, options,
+/// screenshots and anything the pack never listed are not touched.
+pub async fn update(app: &AppHandle, inst: &mut Instance, version_id: &str) -> Result<()> {
+    let pack = inst
+        .pack
+        .clone()
+        .ok_or_else(|| Error::msg("This instance was not installed from a Modrinth pack."))?;
+    let version = crate::modrinth::version(version_id).await?;
+    if version.project_id != pack.project {
+        return Err(Error::msg("That build belongs to a different pack."));
+    }
+
+    let archive = fetch(app, &version).await?;
+    let result = apply(app, inst, &pack, &version, &archive).await;
+    let _ = tokio::fs::remove_file(&archive).await;
+    result
+}
+
+async fn apply(
+    app: &AppHandle,
+    inst: &mut Instance,
+    old: &PackSource,
+    version: &crate::modrinth::Version,
+    archive: &Path,
+) -> Result<()> {
+    let index = tokio::task::spawn_blocking({
+        let archive = archive.to_path_buf();
+        move || read_index(&archive)
+    })
+    .await
+    .map_err(|e| Error::msg(e.to_string()))??;
+    let (mc_version, loader, loader_version) = loader_of(&index.dependencies)?;
+    let files = fill(app, inst, index, archive).await?;
+
+    let game_dir = inst.game_dir();
+    for stale in stale_files(&old.files, &files) {
+        match tokio::fs::remove_file(safe_join(&game_dir, stale)?).await {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+            _ => {}
+        }
+    }
+
+    if (inst.mc_version.as_str(), inst.loader, inst.loader_version.as_str())
+        != (mc_version.as_str(), loader, loader_version.as_str())
+    {
+        // Libraries, assets and the loader profile are all per version,
+        // exactly as when the user changes the version by hand.
+        inst.installed = false;
+    }
+    inst.mc_version = mc_version;
+    inst.loader = loader;
+    inst.loader_version = loader_version;
+    inst.pack = Some(PackSource {
+        project: version.project_id.clone(),
+        version_id: version.id.clone(),
+        version_number: version.version_number.clone(),
+        files,
+    });
+    inst.save().await
+}
+
+/// What the old build installed that the new one does not list.
+fn stale_files<'a>(old: &'a [String], new: &'a [String]) -> impl Iterator<Item = &'a String> {
+    let keep: std::collections::HashSet<&String> = new.iter().collect();
+    old.iter().filter(move |f| !keep.contains(f))
+}
+
+/// Extract the overrides and download everything the index lists. Returns the
+/// game-folder paths the index installed, which is what `PackSource` keeps.
+async fn fill(app: &AppHandle, inst: &Instance, index: Index, archive: &Path) -> Result<Vec<String>> {
     let game_dir = inst.game_dir();
 
     let mut jobs = Vec::new();
+    let mut paths = Vec::new();
     for file in index.files.iter().filter(|f| f.wanted()) {
         let url = file
             .downloads
@@ -143,6 +271,7 @@ async fn fill(app: &AppHandle, inst: &Instance, index: Index, archive: &Path) ->
             sha1: file.hashes.get("sha1").cloned(),
             size: file.file_size,
         });
+        paths.push(file.path.replace('\\', "/"));
     }
 
     let archive = archive.to_path_buf();
@@ -151,7 +280,8 @@ async fn fill(app: &AppHandle, inst: &Instance, index: Index, archive: &Path) ->
         .await
         .map_err(|e| Error::msg(e.to_string()))??;
 
-    download::run(app, "Pack files", jobs).await
+    download::run(app, "Pack files", jobs).await?;
+    Ok(paths)
 }
 
 // --------------------------------------------------------------------- export
@@ -430,6 +560,48 @@ pub(crate) fn extract_overrides(archive: &Path, game_dir: &Path, prefixes: &[&st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pack picked from disk is recognised by its hash, and an old build of
+    /// it is offered the newest one: the two answers update offers rest on.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn an_old_pack_file_is_identified_and_offered_an_update() {
+        let all = crate::modrinth::all_versions("fabulously-optimized").await.unwrap();
+        let old = all.iter().rev().find(|v| v.version_type == "release").unwrap();
+        let file = old.jar().unwrap();
+        let path = std::env::temp_dir().join(format!("jl-test-{}.mrpack", old.id));
+        download::run_quiet(vec![Job {
+            url: file.url.clone(),
+            path: path.clone(),
+            sha1: file.hashes.sha1.clone(),
+            size: Some(file.size),
+        }])
+        .await
+        .unwrap();
+
+        let found = identify(&path).await.expect("not recognised");
+        assert_eq!(found.id, old.id);
+
+        let mut inst = instance::tests::sample();
+        inst.pack = Some(PackSource {
+            project: found.project_id,
+            version_id: found.id,
+            version_number: found.version_number,
+            files: Vec::new(),
+        });
+        let newer = newer(&inst).await.unwrap().expect("no newer build offered");
+        assert_ne!(newer.id, old.id);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn an_update_removes_only_what_the_new_build_dropped() {
+        let list = |l: &[&str]| l.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let old = list(&["mods/a-1.jar", "mods/b.jar", "resourcepacks/x.zip"]);
+        let new = list(&["mods/a-2.jar", "mods/b.jar"]);
+        let stale: Vec<_> = stale_files(&old, &new).cloned().collect();
+        assert_eq!(stale, list(&["mods/a-1.jar", "resourcepacks/x.zip"]));
+    }
 
     fn deps(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()

@@ -497,25 +497,29 @@ async fn install_modpack(
         }
     };
 
-    let file = version.jar().ok_or_else(|| Error::msg("That pack build has no file."))?;
-    let archive = std::env::temp_dir().join(format!("justlauncher-{}.mrpack", version.id));
-    // A leftover from an interrupted install would be accepted on its size
-    // alone, so the download starts from an empty slot.
-    let _ = tokio::fs::remove_file(&archive).await;
-    download::run(
-        &app,
-        "Pack",
-        vec![download::Job {
-            url: file.url.clone(),
-            path: archive.clone(),
-            sha1: file.hashes.sha1.clone(),
-            size: Some(file.size),
-        }],
-    )
-    .await?;
+    let archive = mrpack::fetch(&app, &version).await?;
     let result = mrpack::import(&app, &archive).await;
     let _ = tokio::fs::remove_file(&archive).await;
     result
+}
+
+/// The newest build of the pack this instance came from, if it is not the one
+/// installed; `None` for an instance that is not a recognised pack.
+#[tauri::command]
+async fn check_pack_update(id: String) -> Result<Option<modrinth::Version>> {
+    mrpack::newer(&instance::get(&id).await?).await
+}
+
+/// Move a pack instance to another build of its pack. Refused while the game
+/// runs: it replaces the jars the running game has open.
+#[tauri::command]
+async fn update_pack(app: tauri::AppHandle, id: String, version_id: String) -> Result<Instance> {
+    if launch::is_running(&id) {
+        return Err(Error::msg("Stop the game before updating its pack."));
+    }
+    let mut inst = instance::get(&id).await?;
+    mrpack::update(&app, &mut inst, &version_id).await?;
+    Ok(inst)
 }
 
 /// Export an instance in Modrinth's own pack format, so any launcher that
@@ -847,6 +851,8 @@ pub fn run() {
             search_modpacks,
             install_modpack,
             export_instance_mrpack,
+            check_pack_update,
+            update_pack,
             pack_versions,
             mod_project,
             mod_versions,

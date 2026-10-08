@@ -11,8 +11,10 @@
     type Instance,
     type JavaInstall,
     type ManifestVersion,
+    type ModVersion,
   } from "./api";
   import Modal from "./Modal.svelte";
+  import { task } from "./task.svelte";
   import { notify } from "./toast.svelte";
 
   let {
@@ -43,6 +45,10 @@
   // own version is visible in the list without a click.
   let showSnapshots = $state(untrack(() => !/^\d+\.\d+(\.\d+)?$/.test(instance.mc_version)));
   let confirmingDelete = $state(false);
+  /** The newer pack build on offer: undefined until asked, null for "up to date". */
+  let packUpdate = $state<ModVersion | null | undefined>(undefined);
+  let checkingPack = $state(false);
+  let confirmingPack = $state(false);
 
   const memoryMax = $derived(Math.min(16384, ramMb ?? 16384));
   const changedVersion = $derived(draft.mc_version !== instance.mc_version);
@@ -102,6 +108,34 @@
     }
   }
 
+  async function checkPack() {
+    checkingPack = true;
+    try {
+      packUpdate = await api.checkPackUpdate(instance.id);
+    } catch (e) {
+      notify(errorMessage(e), "error");
+    }
+    checkingPack = false;
+  }
+
+  async function updatePack(version: ModVersion) {
+    confirmingPack = false;
+    task.begin(`Updating ${instance.name} to ${version.version_number}`);
+    try {
+      const saved = await api.updatePack(instance.id, version.id);
+      // The update rewrote instance.json; a later Save of the old draft would
+      // put the previous version and file list back.
+      draft = { ...saved };
+      packUpdate = null;
+      notify(`${saved.name} is now on ${version.version_number}.`);
+      await onsaved();
+    } catch (e) {
+      notify(errorMessage(e), "error");
+    } finally {
+      task.end();
+    }
+  }
+
   /** Same wording as the side panel, so one instance reads the same in both. */
   function playTime(seconds: number) {
     if (!seconds) return "never played";
@@ -146,6 +180,34 @@
       </p>
     {/if}
   </div>
+
+  {#if instance.pack}
+    <div class="field">
+      <label for="s-pack">Modpack</label>
+      <div class="pair">
+        <span id="s-pack" class="muted grow">Installed build {instance.pack.version_number}</span>
+        {#if packUpdate && confirmingPack}
+          <button onclick={() => (confirmingPack = false)}>Cancel</button>
+          <button class="primary" onclick={() => packUpdate && updatePack(packUpdate)}>Update</button>
+        {:else if packUpdate}
+          <button class="primary" onclick={() => (confirmingPack = true)}>
+            Update to {packUpdate.version_number}
+          </button>
+        {:else}
+          <button onclick={checkPack} disabled={checkingPack}>
+            {checkingPack ? "Checking…" : packUpdate === null ? "Up to date · check again" : "Check for update"}
+          </button>
+        {/if}
+      </div>
+      {#if confirmingPack}
+        <p class="warn">
+          The pack's mods and configs are replaced with the new build's. Worlds,
+          options, screenshots and files you added yourself stay. Back up a world
+          first if the update changes Minecraft versions.
+        </p>
+      {/if}
+    </div>
+  {/if}
 
   <div class="field">
     <label for="s-mem">Memory — {draft.memory_mb} MB</label>
@@ -329,6 +391,11 @@
 
   .warn {
     color: var(--danger);
+  }
+
+  .grow {
+    flex: 1;
+    font-size: 13px;
   }
 
   /* A choice the user reads, not a field name — so it opts out of the
