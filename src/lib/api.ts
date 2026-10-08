@@ -483,6 +483,11 @@ export const api = {
   updateMod: (id: string, kind: ModKind, file: string, versionId: string) =>
     invoke<string>("update_mod", { id, kind, file, versionId }),
 
+  /** A newer launcher release, or null -- also for a build that cannot verify one. */
+  checkLauncherUpdate: () =>
+    invoke<{ version: string; notes: string | null } | null>("check_launcher_update"),
+  /** Downloads, verifies and installs it, then restarts the launcher. */
+  installLauncherUpdate: () => invoke<void>("install_launcher_update"),
   getSettings: () => invoke<Settings>("get_settings"),
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
 

@@ -22,6 +22,30 @@
   let draft = $state<Settings>(untrack(() => ({ ...settings })));
   let javas = $state<JavaInstall[]>([]);
   let ramMb = $state<number | null>(null);
+  /** The newer release on offer: undefined until asked, null for "up to date". */
+  let update = $state<{ version: string; notes: string | null } | null | undefined>(undefined);
+  let updating = $state(false);
+
+  async function checkUpdate() {
+    updating = true;
+    try {
+      update = await api.checkLauncherUpdate();
+    } catch (e) {
+      notify(errorMessage(e), "error");
+    }
+    updating = false;
+  }
+
+  async function installUpdate() {
+    updating = true;
+    try {
+      // Restarts the app on success, so nothing after this runs then.
+      await api.installLauncherUpdate();
+    } catch (e) {
+      notify(errorMessage(e), "error");
+      updating = false;
+    }
+  }
 
   const memoryMax = $derived(Math.min(16384, ramMb ?? 16384));
 
@@ -106,6 +130,25 @@
     <p class="faint">A Core API key from console.curseforge.com. Leave empty to keep CurseForge off.</p>
   </div>
 
+  <div class="field section">
+    <label for="g-update">Launcher updates</label>
+    <div class="update-row">
+      <span id="g-update" class="muted">
+        {update ? `JustLauncher ${update.version} is available.` : update === null ? "This is the newest release." : "Not checked yet."}
+      </span>
+      {#if update}
+        <button class="primary" onclick={installUpdate} disabled={updating}>
+          {updating ? "Installing…" : "Install and restart"}
+        </button>
+      {:else}
+        <button onclick={checkUpdate} disabled={updating}>{updating ? "Checking…" : "Check now"}</button>
+      {/if}
+    </div>
+    {#if update?.notes}
+      <p class="faint notes">{update.notes}</p>
+    {/if}
+  </div>
+
   {#snippet footer()}
     <span class="spacer"></span>
     <button onclick={onclose}>Cancel</button>
@@ -153,5 +196,22 @@
     text-transform: none;
     color: var(--text-dim);
     cursor: pointer;
+  }
+
+  .update-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .update-row span {
+    flex: 1;
+    font-size: 13px;
+  }
+
+  .notes {
+    margin: 8px 0 0;
+    white-space: pre-line;
+    line-height: 1.5;
   }
 </style>

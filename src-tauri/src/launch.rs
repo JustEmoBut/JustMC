@@ -97,6 +97,11 @@ fn reopen_window(app: &AppHandle) {
     }
 }
 
+/// Whether any instance has a game process, or is installing for one.
+pub fn any_running() -> bool {
+    !RUNNING.lock().unwrap().is_empty()
+}
+
 /// Whether this instance has a game process, or is installing for one.
 pub fn is_running(id: &str) -> bool {
     RUNNING.lock().unwrap().contains_key(id)

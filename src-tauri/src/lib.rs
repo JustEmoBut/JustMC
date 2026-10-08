@@ -712,6 +712,61 @@ async fn update_mod(
     mods::update_to(&app, &id, kind, &file, &version_id).await
 }
 
+// -------------------------------------------------------------------- updates
+
+/// The minisign public key releases are signed with, supplied at build time
+/// like the Azure client id. A build without one has updates off: the plugin
+/// would otherwise download a release it can only refuse to install.
+const UPDATER_PUBKEY: Option<&str> = option_env!("JUSTLAUNCHER_UPDATER_PUBKEY");
+
+fn updater_pubkey() -> Option<&'static str> {
+    UPDATER_PUBKEY.filter(|k| !k.is_empty())
+}
+
+#[derive(Serialize)]
+struct LauncherUpdate {
+    version: String,
+    notes: Option<String>,
+}
+
+/// A newer release on GitHub, or `None` -- also when this build carries no
+/// key to verify one with.
+#[tauri::command]
+async fn check_launcher_update(app: tauri::AppHandle) -> Result<Option<LauncherUpdate>> {
+    use tauri_plugin_updater::UpdaterExt;
+    if updater_pubkey().is_none() {
+        return Ok(None);
+    }
+    let updater = app.updater().map_err(|e| Error::msg(e.to_string()))?;
+    let found = updater.check().await.map_err(|e| Error::msg(e.to_string()))?;
+    Ok(found.map(|u| LauncherUpdate { version: u.version, notes: u.body }))
+}
+
+/// Download, verify and install the newest release, then restart into it.
+/// Refused while a game runs: the restart would orphan its supervisor, and
+/// with it the play time and the post-exit command.
+#[tauri::command]
+async fn install_launcher_update(app: tauri::AppHandle) -> Result<()> {
+    use tauri_plugin_updater::UpdaterExt;
+    if launch::any_running() {
+        return Err(Error::msg("Close the game before updating the launcher."));
+    }
+    if updater_pubkey().is_none() {
+        return Err(Error::msg("This build cannot verify updates, so it does not install them."));
+    }
+    let updater = app.updater().map_err(|e| Error::msg(e.to_string()))?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| Error::msg(e.to_string()))?
+        .ok_or_else(|| Error::msg("There is no newer release."))?;
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| Error::msg(e.to_string()))?;
+    app.restart()
+}
+
 // ------------------------------------------------------------------- settings
 
 #[tauri::command]
@@ -844,6 +899,10 @@ pub fn run() {
     *STARTUP_LAUNCH.lock().unwrap() = shortcut::launch_arg(std::env::args().skip(1));
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(match updater_pubkey() {
+            Some(key) => tauri_plugin_updater::Builder::new().pubkey(key).build(),
+            None => tauri_plugin_updater::Builder::new().build(),
+        })
         .invoke_handler(tauri::generate_handler![
             list_versions,
             list_loaders,
@@ -917,6 +976,8 @@ pub fn run() {
             list_java,
             system_memory_mb,
             get_settings,
+            check_launcher_update,
+            install_launcher_update,
             save_settings,
         ])
         .build(tauri::generate_context!())
