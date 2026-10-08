@@ -78,12 +78,22 @@ Chromium is bundled.
   latency and icon, SRV records resolved like the game does
 - Microsoft sign-in tokens kept in the OS keychain rather than in a file, with
   a fallback for setups that have none
+- Skins and capes for a Microsoft account: upload a skin with classic or slim
+  arms, reset it, wear or hide a cape; avatars are cut from the account's own
+  skin
+- An account per instance, falling back to the selected one when it is gone,
+  and per-instance environment variables for the game and its commands
+- A world's data packs: add, enable, disable and delete them
+- A desktop shortcut per instance that starts the launcher straight into it
+- Modpack updates: an instance installed from a Modrinth pack is offered the
+  pack's newest build, which replaces the pack's files and keeps the player's
+- Launcher self-update from GitHub Releases, verified with a signing key
 
 ## Not included
 
 World creation and renaming, custom themes, update checks for files only
-CurseForge knows. Planned work — Quick Play, skin management and more —
-lives in the [roadmap](ROADMAP.md).
+CurseForge knows, updates for CurseForge modpacks. Planned work lives in the
+[roadmap](ROADMAP.md).
 
 CurseForge is the second catalogue, not the first. Its API needs a
 per-launcher key, which no build of this launcher ships: the user supplies their
@@ -115,6 +125,21 @@ JUSTLAUNCHER_MSA_CLIENT_ID=<your-client-id> pnpm tauri build
 ```
 
 Without it, offline accounts still work (single player and LAN only).
+
+### Launcher updates
+
+Releases are signed with a [minisign key](https://v2.tauri.app/plugin/updater/#signing-updates);
+a build that carries no public key reports no updates rather than install one
+it cannot verify. Generate the pair once, keep the private key out of the
+repository, and build releases with both halves:
+
+```bash
+pnpm tauri signer generate -w ~/.tauri/justlauncher.key
+JUSTLAUNCHER_UPDATER_PUBKEY="<contents of justlauncher.key.pub>" TAURI_SIGNING_PRIVATE_KEY="<contents of justlauncher.key>" pnpm tauri build --config '{"bundle":{"createUpdaterArtifacts":true}}'
+```
+
+Attach the bundles, their `.sig` files and a `latest.json` to a GitHub release;
+the launcher reads `releases/latest/download/latest.json`.
 
 ## Layout
 
