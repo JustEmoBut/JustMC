@@ -9,7 +9,7 @@
 # from main, each release reuses the last one's compiled dependencies. The
 # action creates the tag itself, from `version` in tauri.conf.json.
 
-name: release
+name: Release
 
 on:
   workflow_dispatch:
