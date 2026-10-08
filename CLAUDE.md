@@ -229,6 +229,10 @@ rather than enabling reqwest's `multipart` feature. The frontend has no UI frame
 Svelte 5 runes and no SvelteKit (a desktop app needs no router); tests use
 `node --test` rather than a test runner. The release profile is tuned for size
 (`opt-level = "z"`, LTO, `panic = "abort"`, strip); keep the binary small.
+The one exception is the release workflow, which overrides it to thin LTO
+over 16 codegen units through `CARGO_PROFILE_RELEASE_*`: measured locally, a
+cached build 202 s -> 88 s for an exe 6.2 MB -> 7.7 MB, a trade chosen for
+release turnaround. Do not move that override into `Cargo.toml`.
 
 ### Untrusted input
 
