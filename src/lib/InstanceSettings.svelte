@@ -4,6 +4,7 @@
   import {
     api,
     errorMessage,
+    type Account,
     type FabricLoader,
     loaderName,
     latestLabel,
@@ -33,6 +34,7 @@
   // once on open; later prop updates must not clobber what the user typed.
   let draft = $state<Instance>(untrack(() => ({ ...instance })));
   let javas = $state<JavaInstall[]>([]);
+  let accounts = $state<Account[]>([]);
   /** Physical RAM in MB; the slider must not offer more than the machine has. */
   let ramMb = $state<number | null>(null);
   let loaders = $state<FabricLoader[]>([]);
@@ -55,6 +57,7 @@
 
   $effect(() => {
     api.listJava().then((list) => (javas = list));
+    api.listAccounts().then((list) => (accounts = list));
     api.systemMemoryMb().then((mb) => (ramMb = mb));
     api.listVersions().then((list) => (versions = list.versions)).catch(() => (versions = []));
   });
@@ -217,6 +220,36 @@
       Left empty the game opens at whatever size it last remembered. Set both to
       open at a fixed size — useful for recording, or on a screen the default
       window is lost on.
+    </p>
+  </div>
+
+  <div class="field">
+    <label for="s-account">Account</label>
+    <select id="s-account" bind:value={draft.account_id}>
+      <option value="">The one selected in the launcher</option>
+      <!-- A removed account stays listed so opening this never silently
+           reselects; launching falls back to the selection for it. -->
+      {#if draft.account_id && !accounts.some((a) => a.id === draft.account_id)}
+        <option value={draft.account_id}>Removed account — uses the selected one</option>
+      {/if}
+      {#each accounts as account (account.id)}
+        <option value={account.id}>{account.name} · {account.kind}</option>
+      {/each}
+    </select>
+  </div>
+
+  <div class="field">
+    <label for="s-env">Environment variables</label>
+    <textarea
+      id="s-env"
+      rows="3"
+      bind:value={draft.env}
+      placeholder="MANGOHUD=1"
+      spellcheck="false"
+    ></textarea>
+    <p class="faint">
+      One <code>KEY=VALUE</code> per line, passed to the game and to the
+      commands below. Lines starting with <code>#</code> are ignored.
     </p>
   </div>
 

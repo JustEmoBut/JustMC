@@ -221,7 +221,11 @@ async fn launch_instance(
     quick_play: Option<launch::QuickPlay>,
 ) -> Result<()> {
     let inst = instance::get(&id).await?;
-    let account = resolve_account(&account_id).await?;
+    // The instance's own account wins while it still exists; a removed one
+    // falls back to the launcher's selection rather than refusing to start.
+    let own = !inst.account_id.is_empty()
+        && auth::load_all().await.iter().any(|a| a.id == inst.account_id);
+    let account = resolve_account(if own { &inst.account_id } else { &account_id }).await?;
     launch::launch(&app, inst, account, quick_play).await
 }
 

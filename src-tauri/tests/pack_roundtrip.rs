@@ -44,6 +44,8 @@ fn sample() -> Instance {
         play_time: 7_200,
         count_play_time: true,
         installed: true,
+        account_id: String::new(),
+        env: String::new(),
     }
 }
 

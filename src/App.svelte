@@ -207,7 +207,9 @@
   }
 
   async function play(instance: Instance, quickPlay: QuickPlay | null = null) {
-    if (!selectedAccount) {
+    // An instance can name its own account; the backend falls back to the
+    // selection when that one is gone, so only "neither exists" stops here.
+    if (!selectedAccount && !accounts.some((a) => a.id === instance.account_id)) {
       settingsPage = "accounts";
       notify("Add an account first.", "error");
       return;

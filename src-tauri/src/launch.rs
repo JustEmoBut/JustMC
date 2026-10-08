@@ -377,6 +377,9 @@ pub async fn run_hook(command: &str, instance: &Instance) -> (bool, String) {
         .env("INST_DIR", instance.dir())
         .env("INST_MC_DIR", instance.game_dir())
         .env("INST_MC_VERSION", &instance.mc_version)
+        // `launch` refuses a malformed list before any hook runs, so an error
+        // here cannot happen on that path.
+        .envs(instance.env_vars().unwrap_or_default())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -465,6 +468,8 @@ pub async fn launch(
     let _guard = RunningGuard::claim(&instance.id).ok_or_else(|| {
         Error::msg(format!("{} is already running.", instance.name))
     })?;
+    // Checked before a minutes-long install, not after it.
+    let env = instance.env_vars()?;
     let version = install::install(app, &mut instance).await?;
     let cp = install::classpath(&version, &instance.mc_version)?;
 
@@ -551,6 +556,7 @@ pub async fn launch(
     command
         .args(&args)
         .current_dir(instance.game_dir())
+        .envs(env)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null());

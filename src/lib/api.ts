@@ -69,6 +69,10 @@ export interface Instance {
   /** Whether a session here adds to the play time counters. */
   count_play_time: boolean;
   installed: boolean;
+  /** The account this instance launches with; empty means the selected one. */
+  account_id: string;
+  /** Extra environment for the game and its hooks, one KEY=VALUE per line. */
+  env: string;
 }
 
 /** A server to join or a save to open on launch; Minecraft calls it Quick Play. */

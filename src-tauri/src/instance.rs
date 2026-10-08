@@ -109,6 +109,15 @@ pub struct Instance {
     /// Whether the install step has completed at least once.
     #[serde(default)]
     pub installed: bool,
+    /// The account this instance launches with. Empty, or an account that has
+    /// since been removed, means whichever one is selected in the launcher.
+    #[serde(default)]
+    pub account_id: String,
+    /// Extra environment for the game and its hooks, one `KEY=VALUE` per line.
+    /// Text rather than a map for the same reason options.txt is: it is what
+    /// the user types, and `env_vars` is the one place that reads it.
+    #[serde(default)]
+    pub env: String,
 }
 
 /// Only for an instance.json that predates the field; a new instance takes
@@ -162,6 +171,29 @@ impl Instance {
                 self.mc_version
             ),
         }
+    }
+
+    /// `env` as pairs. Blank lines and `#` comments are skipped; a line with
+    /// no `=` or an empty name is an error, so a typo surfaces at launch
+    /// instead of silently doing nothing.
+    pub fn env_vars(&self) -> Result<Vec<(String, String)>> {
+        let mut out = Vec::new();
+        for line in self.env.lines().map(str::trim) {
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            match line.split_once('=') {
+                Some((key, value)) if !key.trim().is_empty() => {
+                    out.push((key.trim().to_string(), value.trim().to_string()))
+                }
+                _ => {
+                    return Err(Error::msg(format!(
+                        "Environment variable line \"{line}\" is not KEY=VALUE."
+                    )))
+                }
+            }
+        }
+        Ok(out)
     }
 
     pub async fn save(&self) -> Result<()> {
@@ -239,6 +271,8 @@ pub async fn create(
         play_time: 0,
         count_play_time: true,
         installed: false,
+        account_id: String::new(),
+        env: String::new(),
     };
     tokio::fs::create_dir_all(instance.game_dir()).await?;
     instance.save().await?;
@@ -308,6 +342,8 @@ pub(crate) mod tests {
             play_time: 0,
             count_play_time: true,
             installed: false,
+            account_id: String::new(),
+            env: String::new(),
         }
     }
 
@@ -337,6 +373,24 @@ pub(crate) mod tests {
         )
         .unwrap();
         assert!(old.count_play_time);
+    }
+
+    #[test]
+    fn env_lines_parse_and_typos_are_refused() {
+        let mut i = sample();
+        i.env = "# comment
+
+ MANGOHUD = 1 
+PATH_EXTRA=a=b
+".into();
+        assert_eq!(
+            i.env_vars().unwrap(),
+            vec![("MANGOHUD".into(), "1".into()), ("PATH_EXTRA".into(), "a=b".into())]
+        );
+        i.env = "NOEQUALS".into();
+        assert!(i.env_vars().is_err());
+        i.env = "=value".into();
+        assert!(i.env_vars().is_err());
     }
 
     #[tokio::test]

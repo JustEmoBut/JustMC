@@ -35,6 +35,8 @@ fn instance(mc_version: &str, loader: Loader, loader_version: &str) -> Instance 
         play_time: 0,
         count_play_time: true,
         installed: false,
+        account_id: String::new(),
+        env: String::new(),
     }
 }
 
