@@ -10,7 +10,11 @@ export const gameLog = $state({ lines: [] as string[] });
 const MAX_LINES = 2000;
 
 export function appendLine(line: string) {
-  gameLog.lines = [...gameLog.lines.slice(-MAX_LINES), line];
+  // In place: copying the whole buffer per line is what a chatty mod pays for.
+  gameLog.lines.push(line);
+  if (gameLog.lines.length > MAX_LINES) {
+    gameLog.lines.splice(0, gameLog.lines.length - MAX_LINES);
+  }
 }
 
 export function clearLog() {

@@ -317,44 +317,62 @@ fn cached_jar(
 /// since nothing on Modrinth ships unpacked.
 pub async fn list(id: &str, kind: Kind) -> Result<Vec<ModFile>> {
     let dir = folder(id, kind).await?;
+    // Off the async runtime: a cold read hashes every archive in the folder,
+    // hundreds of MB for a large pack.
+    tokio::task::spawn_blocking(move || list_blocking(&dir, kind))
+        .await
+        .map_err(|e| Error::msg(e.to_string()))?
+}
+
+fn list_blocking(dir: &std::path::Path, kind: Kind) -> Result<Vec<ModFile>> {
     let extension = kind.extension();
-    let Ok(entries) = std::fs::read_dir(&dir) else {
+    let Ok(entries) = std::fs::read_dir(dir) else {
         return Ok(Vec::new()); // the folder not existing yet is not an error
     };
 
-    let mut mods: Vec<ModFile> = entries
-        .flatten()
-        .filter_map(|e| {
-            let file = e.file_name().to_string_lossy().into_owned();
-            // Only packs are read unpacked; a loader ignores an exploded jar.
-            if e.path().is_dir() {
-                if kind == Kind::Mods {
-                    return None;
-                }
-                let (name, version, icon) = read_dir_pack(&e.path(), kind)?;
-                return Some(ModFile {
-                    enabled: !file.ends_with(DISABLED),
-                    file,
-                    name,
-                    version,
-                    icon,
-                    size: 0,
-                    sha1: String::new(),
-                    fingerprint: 0,
-                    dir: true,
-                });
-            }
-            let enabled = file.ends_with(extension);
-            if !enabled && !file.ends_with(&format!("{extension}{DISABLED}")) {
+    let read = |e: &std::fs::DirEntry| -> Option<ModFile> {
+        let file = e.file_name().to_string_lossy().into_owned();
+        // Only packs are read unpacked; a loader ignores an exploded jar.
+        if e.path().is_dir() {
+            if kind == Kind::Mods {
                 return None;
             }
-            let meta = e.metadata().ok();
-            let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-            let (name, version, icon, sha1, fingerprint) =
-                cached_jar(&e.path(), size, meta.and_then(|m| m.modified().ok()), kind);
-            Some(ModFile { file, name, version, icon, enabled, size, sha1, fingerprint, dir: false })
-        })
-        .collect();
+            let (name, version, icon) = read_dir_pack(&e.path(), kind)?;
+            return Some(ModFile {
+                enabled: !file.ends_with(DISABLED),
+                file,
+                name,
+                version,
+                icon,
+                size: 0,
+                sha1: String::new(),
+                fingerprint: 0,
+                dir: true,
+            });
+        }
+        let enabled = file.ends_with(extension);
+        if !enabled && !file.ends_with(&format!("{extension}{DISABLED}")) {
+            return None;
+        }
+        let meta = e.metadata().ok();
+        let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        let (name, version, icon, sha1, fingerprint) =
+            cached_jar(&e.path(), size, meta.and_then(|m| m.modified().ok()), kind);
+        Some(ModFile { file, name, version, icon, enabled, size, sha1, fingerprint, dir: false })
+    };
+
+    // A cold read hashes every archive, so the files are split across the
+    // cores; a warm one is all cache hits and the threads cost next to nothing.
+    let entries: Vec<_> = entries.flatten().collect();
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let chunk = entries.len().div_ceil(threads).max(1);
+    let mut mods: Vec<ModFile> = std::thread::scope(|scope| {
+        let handles: Vec<_> = entries
+            .chunks(chunk)
+            .map(|part| scope.spawn(|| part.iter().filter_map(read).collect::<Vec<_>>()))
+            .collect();
+        handles.into_iter().flat_map(|h| h.join().expect("mod scan thread panicked")).collect()
+    });
 
     mods.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(mods)
