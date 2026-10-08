@@ -26,6 +26,15 @@ export async function duplicateInstance(instance: Instance) {
   }
 }
 
+export async function createShortcut(instance: Instance) {
+  try {
+    const path = await api.createShortcut(instance.id);
+    notify(`Created a shortcut at ${path}.`);
+  } catch (e) {
+    notify(errorMessage(e), "error");
+  }
+}
+
 export async function stopInstance(instance: Instance) {
   try {
     if (!(await api.stopInstance(instance.id))) notify(`${instance.name} is not running.`);

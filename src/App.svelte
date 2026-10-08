@@ -104,8 +104,17 @@
   }
 
   $effect(() => {
-    refreshInstances();
-    refreshAccounts();
+    // A desktop shortcut started the launcher: launch its instance once both
+    // lists are in, exactly as the Play button would.
+    Promise.all([refreshInstances(), refreshAccounts()])
+      .then(() => api.startupLaunch())
+      .then((id) => {
+        if (!id) return;
+        const instance = instances.find((i) => i.id === id);
+        if (instance) play(instance);
+        else notify(`The shortcut points at an instance that no longer exists (${id}).`, "error");
+      })
+      .catch((e) => notify(errorMessage(e), "error"));
     api.getSettings().then((s) => (settings = s));
 
     const unlisten = [

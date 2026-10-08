@@ -20,6 +20,7 @@ pub mod nbt;
 pub mod screenshots;
 pub mod servers;
 pub mod settings;
+pub mod shortcut;
 pub mod worlds;
 pub mod cleanup;
 
@@ -202,6 +203,23 @@ async fn open_exports_folder(app: tauri::AppHandle) -> Result<()> {
     app.opener()
         .open_path(dir.to_string_lossy(), None::<&str>)
         .map_err(|e| Error::msg(e.to_string()))
+}
+
+/// Put a shortcut on the desktop that starts this instance; returns its path.
+#[tauri::command]
+async fn create_shortcut(id: String) -> Result<String> {
+    let inst = instance::get(&id).await?;
+    Ok(shortcut::create(&inst).await?.to_string_lossy().into_owned())
+}
+
+/// The instance a desktop shortcut started the launcher for. Taken, not read:
+/// the window is rebuilt after a game when it was closed for one, and the
+/// rebuilt UI must not launch the same instance a second time.
+static STARTUP_LAUNCH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+#[tauri::command]
+fn startup_launch() -> Option<String> {
+    STARTUP_LAUNCH.lock().unwrap().take()
 }
 
 // -------------------------------------------------------------------- install
@@ -778,6 +796,7 @@ fn list_java() -> Vec<java::JavaInstall> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    *STARTUP_LAUNCH.lock().unwrap() = shortcut::launch_arg(std::env::args().skip(1));
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -787,6 +806,8 @@ pub fn run() {
             create_instance,
             update_instance,
             delete_instance,
+            create_shortcut,
+            startup_launch,
             export_instance,
             import_instance,
             duplicate_instance,

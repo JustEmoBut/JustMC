@@ -37,6 +37,7 @@ export function instanceMenu(instance: Instance, status: string | undefined, on:
       ? [{ label: "Mods Folder", icon: "folder" as const, action: () => actions.openModsFolder(instance, "mods") }]
       : []),
     { label: "Export", icon: "export", action: () => on.exportInstance(instance) },
+    { label: "Desktop Shortcut", icon: "play", action: () => actions.createShortcut(instance) },
     {
       label: "Copy",
       icon: "copy",

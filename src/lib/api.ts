@@ -295,6 +295,10 @@ export const api = {
   duplicateInstance: (id: string, name: string) =>
     invoke<Instance>("duplicate_instance", { id, name }),
   openExportsFolder: () => invoke<void>("open_exports_folder"),
+  /** Writes a desktop shortcut that launches the instance; returns its path. */
+  createShortcut: (id: string) => invoke<string>("create_shortcut", { id }),
+  /** The instance a desktop shortcut started the launcher for, once; null otherwise. */
+  startupLaunch: () => invoke<string | null>("startup_launch"),
   installInstance: (id: string) => invoke<void>("install_instance", { id }),
   /** `quickPlay` joins a server or opens a save instead of stopping at the menu. */
   launchInstance: (id: string, accountId: string, quickPlay: QuickPlay | null = null) =>

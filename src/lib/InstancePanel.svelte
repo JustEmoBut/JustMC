@@ -142,6 +142,10 @@
       <Icon name="export" size={14} />
       Export
     </button>
+    <button onclick={() => actions.createShortcut(instance)} title="A desktop icon that starts this instance">
+      <Icon name="play" size={14} />
+      Shortcut
+    </button>
     <button onclick={duplicate} disabled={duplicating || !!status}>
       <Icon name="copy" size={14} />
       {duplicating ? "Copying…" : "Copy"}
