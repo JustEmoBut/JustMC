@@ -124,6 +124,40 @@ async fn world_dir(id: &str, folder: &str) -> Result<PathBuf> {
     Ok(dir)
 }
 
+/// A world's `datapacks` folder. A data pack has a resource pack's shape -- a
+/// zip or a folder with `pack.mcmeta` -- so listing, toggling and deleting are
+/// the content-folder code pointed here, `.disabled` convention included.
+async fn datapacks(id: &str, folder: &str) -> Result<PathBuf> {
+    Ok(world_dir(id, folder).await?.join("datapacks"))
+}
+
+pub async fn list_datapacks(id: &str, folder: &str) -> Result<Vec<crate::mods::ModFile>> {
+    let dir = datapacks(id, folder).await?;
+    tokio::task::spawn_blocking(move || crate::mods::list_blocking(&dir, crate::mods::Kind::Resourcepacks))
+        .await
+        .map_err(|e| Error::msg(e.to_string()))?
+}
+
+pub async fn set_datapack_enabled(id: &str, folder: &str, file: &str, enabled: bool) -> Result<String> {
+    crate::mods::toggle_in(&datapacks(id, folder).await?, file, enabled).await
+}
+
+pub async fn delete_datapack(id: &str, folder: &str, file: &str) -> Result<()> {
+    crate::mods::delete_in(&datapacks(id, folder).await?, file).await
+}
+
+/// Add a data pack the file picker handed over as bytes. Only a `.zip`: that
+/// is what a data pack is distributed as, and the name is joined onto a path.
+pub async fn add_datapack(id: &str, folder: &str, name: &str, bytes: &[u8]) -> Result<()> {
+    if !name.to_lowercase().ends_with(".zip") {
+        return Err(Error::msg("A data pack is a .zip file."));
+    }
+    let dir = datapacks(id, folder).await?;
+    tokio::fs::create_dir_all(&dir).await?;
+    tokio::fs::write(dir.join(checked_name(name)?), bytes).await?;
+    Ok(())
+}
+
 /// Zip a world into `exports/`, returning the archive path.
 ///
 /// Backups go where exported instances go, so there is one folder a user has

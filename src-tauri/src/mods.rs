@@ -324,7 +324,7 @@ pub async fn list(id: &str, kind: Kind) -> Result<Vec<ModFile>> {
         .map_err(|e| Error::msg(e.to_string()))?
 }
 
-fn list_blocking(dir: &std::path::Path, kind: Kind) -> Result<Vec<ModFile>> {
+pub(crate) fn list_blocking(dir: &std::path::Path, kind: Kind) -> Result<Vec<ModFile>> {
     let extension = kind.extension();
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Ok(Vec::new()); // the folder not existing yet is not an error
@@ -380,7 +380,12 @@ fn list_blocking(dir: &std::path::Path, kind: Kind) -> Result<Vec<ModFile>> {
 
 /// Toggle a file by renaming it. Returns the new file name.
 pub async fn set_enabled(id: &str, kind: Kind, file: &str, enabled: bool) -> Result<String> {
-    let dir = folder(id, kind).await?;
+    toggle_in(&folder(id, kind).await?, file, enabled).await
+}
+
+/// `set_enabled` for any content folder, which is how a world's data packs
+/// share it.
+pub(crate) async fn toggle_in(dir: &std::path::Path, file: &str, enabled: bool) -> Result<String> {
     let from = dir.join(checked_name(file)?);
     let target = match (enabled, file.ends_with(DISABLED)) {
         (true, true) => file.trim_end_matches(DISABLED).to_string(),
@@ -394,7 +399,12 @@ pub async fn set_enabled(id: &str, kind: Kind, file: &str, enabled: bool) -> Res
 }
 
 pub async fn delete(id: &str, kind: Kind, file: &str) -> Result<()> {
-    let path = folder(id, kind).await?.join(checked_name(file)?);
+    delete_in(&folder(id, kind).await?, file).await
+}
+
+/// `delete` for any content folder.
+pub(crate) async fn delete_in(dir: &std::path::Path, file: &str) -> Result<()> {
+    let path = dir.join(checked_name(file)?);
     // `checked_name` is what keeps this recursive delete inside the folder.
     if path.is_dir() {
         tokio::fs::remove_dir_all(path).await?;

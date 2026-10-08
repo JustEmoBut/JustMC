@@ -328,6 +328,17 @@ export const api = {
   /** Replaces the world the backup came from; returns its folder name. */
   restoreWorld: (id: string, file: string) => invoke<string>("restore_world", { id, file }),
 
+  /** A world's data packs, read like a resource pack folder. */
+  listDatapacks: (id: string, folder: string) =>
+    invoke<ModFile[]>("list_datapacks", { id, folder }),
+  setDatapackEnabled: (id: string, folder: string, file: string, enabled: boolean) =>
+    invoke<string>("set_datapack_enabled", { id, folder, file, enabled }),
+  deleteDatapack: (id: string, folder: string, file: string) =>
+    invoke<void>("delete_datapack", { id, folder, file }),
+  /** For a file the webview picked: it hands over content, never a path. */
+  addDatapack: (id: string, folder: string, name: string, bytes: Uint8Array) =>
+    invoke<void>("add_datapack", { id, folder, name, bytes }),
+
   /** What the shared store holds that nothing needs. Deletes nothing. */
   scanStorage: () => invoke<StorageReport>("scan_storage"),
   /** Sweeps it, and reports what went. */

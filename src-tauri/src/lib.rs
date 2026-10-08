@@ -287,6 +287,26 @@ async fn restore_world(id: String, file: String) -> Result<String> {
 }
 
 #[tauri::command]
+async fn list_datapacks(id: String, folder: String) -> Result<Vec<mods::ModFile>> {
+    worlds::list_datapacks(&id, &folder).await
+}
+
+#[tauri::command]
+async fn set_datapack_enabled(id: String, folder: String, file: String, enabled: bool) -> Result<String> {
+    worlds::set_datapack_enabled(&id, &folder, &file, enabled).await
+}
+
+#[tauri::command]
+async fn delete_datapack(id: String, folder: String, file: String) -> Result<()> {
+    worlds::delete_datapack(&id, &folder, &file).await
+}
+
+#[tauri::command]
+async fn add_datapack(id: String, folder: String, name: String, bytes: Vec<u8>) -> Result<()> {
+    worlds::add_datapack(&id, &folder, &name, &bytes).await
+}
+
+#[tauri::command]
 async fn delete_world(id: String, folder: String) -> Result<()> {
     worlds::delete(&id, &folder).await
 }
@@ -789,6 +809,10 @@ pub fn run() {
             list_world_backups,
             restore_world,
             delete_world,
+            list_datapacks,
+            set_datapack_enabled,
+            delete_datapack,
+            add_datapack,
             read_options,
             write_options,
             scan_storage,

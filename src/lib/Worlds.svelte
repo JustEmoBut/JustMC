@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, errorMessage, type Instance, type World, type WorldBackup } from "./api";
+  import Datapacks from "./Datapacks.svelte";
   import Icon from "./Icon.svelte";
   import Modal from "./Modal.svelte";
   import { notify } from "./toast.svelte";
@@ -53,6 +54,8 @@
   let confirming = $state("");
   /** Archive whose restore is armed. Restoring replaces a world, so it asks. */
   let confirmingRestore = $state("");
+  /** The world whose data packs dialog is open. */
+  let packsOf = $state<World | null>(null);
 
   async function refresh() {
     loading = true;
@@ -158,6 +161,10 @@
                 Play
               </button>
             {/if}
+            <button onclick={() => (packsOf = world)} title="Add, disable or remove this world's data packs">
+              <Icon name="package" />
+              Data packs
+            </button>
             <button
               disabled={running || !!busy}
               onclick={() => backup(world)}
@@ -210,6 +217,10 @@
     </ul>
   {/if}
 </Modal>
+
+{#if packsOf}
+  <Datapacks {instance} world={packsOf} {running} onclose={() => (packsOf = null)} />
+{/if}
 
 <style>
   ul {

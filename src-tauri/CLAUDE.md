@@ -324,6 +324,13 @@ anything: one root folder, holding a `level.dat`. The world is replaced rather
 than merged into, because chunks from two saves in one folder is a corrupt
 world.
 
+**Data packs are a resource pack folder in a world.** `saves/<world>/datapacks`
+holds the same shapes (a zip, or a folder with `pack.mcmeta`), so listing,
+`.disabled` toggling and deleting are `mods::list_blocking`, `toggle_in` and
+`delete_in` pointed there through `world_dir` — no second implementation. The
+game also records enabled packs in `level.dat`; that list is left alone, and a
+renamed pack simply drops out of it the next time the world opens.
+
 ## Options (`read_options`, `write_options` in `lib.rs`)
 
 `.minecraft/options.txt` edited as text, in two commands too small for a
