@@ -1,7 +1,9 @@
 <script lang="ts">
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { api, errorMessage, type Account, type DeviceCode } from "./api";
+  import Avatar from "./Avatar.svelte";
   import Modal from "./Modal.svelte";
+  import SkinDialog from "./SkinDialog.svelte";
   import { notify } from "./toast.svelte";
 
   let {
@@ -20,6 +22,8 @@
   let offlineName = $state("");
   let pending = $state<DeviceCode | null>(null);
   let waiting = $state(false);
+  /** The account whose skin dialog is open. */
+  let skinOf = $state<Account | null>(null);
 
   async function addOffline() {
     try {
@@ -68,16 +72,14 @@
     <ul class="list">
       {#each accounts as account (account.id)}
         <li>
-          <img
-            src="https://api.mineatar.io/face/{account.id}?scale=8"
-            alt=""
-            width="32"
-            height="32"
-          />
+          <Avatar url={account.skin_url} size={32} />
           <div class="who">
             <strong>{account.name}</strong>
             <span class="faint">{account.kind === "microsoft" ? "Microsoft" : "Offline"}</span>
           </div>
+          {#if account.kind === "microsoft"}
+            <button onclick={() => (skinOf = account)}>Skin</button>
+          {/if}
           <button class="danger" onclick={() => remove(account.id)}>Remove</button>
         </li>
       {/each}
@@ -121,6 +123,10 @@
   {/snippet}
 </Modal>
 
+{#if skinOf}
+  <SkinDialog account={skinOf} onclose={() => (skinOf = null)} {onchange} />
+{/if}
+
 <style>
   .list {
     list-style: none;
@@ -139,12 +145,6 @@
     background: var(--bg-inset);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-  }
-
-  .list img {
-    border-radius: 4px;
-    image-rendering: pixelated;
-    background: var(--border);
   }
 
   .who {

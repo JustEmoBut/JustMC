@@ -411,6 +411,7 @@ async fn tokens_live_in_the_keychain_not_the_file() {
         refresh_token: "refresh-secret".into(),
         expires_at: 1_700_000_000,
         xuid: "1234".into(),
+        skin_url: String::new(),
     };
     auth::save_all(std::slice::from_ref(&account)).await.unwrap();
 

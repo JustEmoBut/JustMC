@@ -734,6 +734,7 @@ mod tests {
             refresh_token: String::new(),
             expires_at: 0,
             xuid: String::new(),
+            skin_url: String::new(),
         };
         let mut instance = crate::instance::tests::sample();
 

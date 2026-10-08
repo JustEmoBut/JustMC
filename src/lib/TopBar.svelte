@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Account } from "./api";
+  import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
 
   let {
@@ -51,7 +52,7 @@
 
   <button class="ghost account" onclick={onaccounts} title="Accounts">
     {#if account}
-      <img src="https://api.mineatar.io/face/{account.id}?scale=8" alt="" width="24" height="24" />
+      <Avatar url={account.skin_url} size={24} />
     {:else}
       <Icon name="user" />
     {/if}
@@ -154,12 +155,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .account img {
-    flex: none;
-    border-radius: 4px;
-    image-rendering: pixelated;
   }
 
   @media (max-width: 960px) {

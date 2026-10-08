@@ -21,6 +21,7 @@ pub mod screenshots;
 pub mod servers;
 pub mod settings;
 pub mod shortcut;
+pub mod skins;
 pub mod worlds;
 pub mod cleanup;
 
@@ -760,6 +761,46 @@ async fn remove_account(id: String) -> Result<()> {
     auth::save_all(&accounts).await
 }
 
+/// The account's skins and capes, read fresh from Mojang.
+#[tauri::command]
+async fn account_profile(account_id: String) -> Result<skins::Profile> {
+    let account = resolve_account(&account_id).await?;
+    let profile = skins::profile(&account).await?;
+    remember_skin(account, profile).await
+}
+
+#[tauri::command]
+async fn upload_skin(account_id: String, variant: skins::Variant, bytes: Vec<u8>) -> Result<skins::Profile> {
+    let account = resolve_account(&account_id).await?;
+    let profile = skins::upload(&account, variant, &bytes).await?;
+    remember_skin(account, profile).await
+}
+
+#[tauri::command]
+async fn reset_skin(account_id: String) -> Result<skins::Profile> {
+    let account = resolve_account(&account_id).await?;
+    let profile = skins::reset(&account).await?;
+    remember_skin(account, profile).await
+}
+
+/// `cape_id` null takes the cape off.
+#[tauri::command]
+async fn set_cape(account_id: String, cape_id: Option<String>) -> Result<skins::Profile> {
+    let account = resolve_account(&account_id).await?;
+    let profile = skins::set_cape(&account, cape_id.as_deref()).await?;
+    remember_skin(account, profile).await
+}
+
+/// Keep the stored avatar source in step with what Mojang just said is worn.
+async fn remember_skin(mut account: Account, profile: skins::Profile) -> Result<skins::Profile> {
+    let url = profile.skin_url();
+    if account.skin_url != url {
+        account.skin_url = url;
+        store_account(account).await?;
+    }
+    Ok(profile)
+}
+
 async fn store_account(account: Account) -> Result<()> {
     let mut accounts = auth::load_all().await;
     // Signing in again with the same account replaces the stale tokens rather
@@ -869,6 +910,10 @@ pub fn run() {
             complete_microsoft_login,
             add_offline_account,
             remove_account,
+            account_profile,
+            upload_skin,
+            reset_skin,
+            set_cape,
             list_java,
             system_memory_mb,
             get_settings,

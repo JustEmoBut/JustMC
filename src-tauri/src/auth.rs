@@ -67,6 +67,10 @@ pub struct Account {
     pub expires_at: u64,
     #[serde(default)]
     pub xuid: String,
+    /// The skin being worn, which the avatar is cut from. Empty for offline
+    /// accounts and until the profile is next read.
+    #[serde(default)]
+    pub skin_url: String,
 }
 
 impl Account {
@@ -275,11 +279,6 @@ async fn finish_login(ms: MsToken) -> Result<Account> {
 
     let mc = minecraft_token(&client, &format!("XBL3.0 x={};{}", xsts.uhs()?, xsts.token)).await?;
 
-    #[derive(Deserialize)]
-    struct Profile {
-        id: String,
-        name: String,
-    }
     let profile_resp = client
         .get(MC_PROFILE_URL)
         .bearer_auth(&mc.access_token)
@@ -288,18 +287,19 @@ async fn finish_login(ms: MsToken) -> Result<Account> {
     if profile_resp.status() == reqwest::StatusCode::NOT_FOUND {
         return Err(Error::msg("This account does not own Minecraft: Java Edition."));
     }
-    let profile: Profile = profile_resp.error_for_status()?.json().await?;
+    let profile: crate::skins::Profile = profile_resp.error_for_status()?.json().await?;
 
     // Renew a minute early so a launch never starts with a token about to die.
     let lifetime = mc.expires_in.min(ms.expires_in).saturating_sub(60);
     Ok(Account {
         id: dashed_uuid(&profile.id),
-        name: profile.name,
+        name: profile.name.clone(),
         kind: AccountKind::Microsoft,
         access_token: mc.access_token,
         refresh_token: ms.refresh_token,
         expires_at: now() + lifetime,
         xuid: xsts.xuid(),
+        skin_url: profile.skin_url(),
     })
 }
 
@@ -377,6 +377,7 @@ pub fn offline_account(name: &str) -> Result<Account> {
         refresh_token: String::new(),
         expires_at: 0,
         xuid: String::new(),
+        skin_url: String::new(),
     })
 }
 

@@ -107,6 +107,27 @@ export interface Account {
   id: string;
   name: string;
   kind: "microsoft" | "offline";
+  /** The worn skin's texture URL, which the avatar is cut from; empty when unknown. */
+  skin_url: string;
+}
+
+/** A skin or cape on a Microsoft account, as Mojang's profile API lists it. */
+export interface SkinTexture {
+  id: string;
+  /** "ACTIVE" for the one being worn. */
+  state: string;
+  url: string;
+  /** A skin's arm model, "CLASSIC" or "SLIM"; empty on capes. */
+  variant: string;
+  /** A cape's name; empty on skins. */
+  alias: string;
+}
+
+export interface SkinProfile {
+  id: string;
+  name: string;
+  skins: SkinTexture[];
+  capes: SkinTexture[];
 }
 
 export interface DeviceCode {
@@ -328,6 +349,14 @@ export const api = {
     invoke<Account>("complete_microsoft_login", { code }),
   addOfflineAccount: (name: string) => invoke<Account>("add_offline_account", { name }),
   removeAccount: (id: string) => invoke<void>("remove_account", { id }),
+  /** Skins and capes, read fresh from Mojang; Microsoft accounts only. */
+  accountProfile: (accountId: string) => invoke<SkinProfile>("account_profile", { accountId }),
+  uploadSkin: (accountId: string, variant: "classic" | "slim", bytes: Uint8Array) =>
+    invoke<SkinProfile>("upload_skin", { accountId, variant, bytes }),
+  resetSkin: (accountId: string) => invoke<SkinProfile>("reset_skin", { accountId }),
+  /** `capeId` null takes the cape off. */
+  setCape: (accountId: string, capeId: string | null) =>
+    invoke<SkinProfile>("set_cape", { accountId, capeId }),
 
   listScreenshots: (id: string) => invoke<Screenshot[]>("list_screenshots", { id }),
   deleteScreenshot: (id: string, file: string) =>
