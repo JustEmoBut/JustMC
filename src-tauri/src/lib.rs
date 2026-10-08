@@ -714,29 +714,18 @@ async fn update_mod(
 
 // -------------------------------------------------------------------- updates
 
-/// The minisign public key releases are signed with, supplied at build time
-/// like the Azure client id. A build without one has updates off: the plugin
-/// would otherwise download a release it can only refuse to install.
-const UPDATER_PUBKEY: Option<&str> = option_env!("JUSTLAUNCHER_UPDATER_PUBKEY");
-
-fn updater_pubkey() -> Option<&'static str> {
-    UPDATER_PUBKEY.filter(|k| !k.is_empty())
-}
-
 #[derive(Serialize)]
 struct LauncherUpdate {
     version: String,
     notes: Option<String>,
 }
 
-/// A newer release on GitHub, or `None` -- also when this build carries no
-/// key to verify one with.
+/// A newer release on GitHub, or `None`. Releases are verified against the
+/// public key in `tauri.conf.json`; it is public, so it lives in the config,
+/// and the bundler refuses to build updater artifacts without it.
 #[tauri::command]
 async fn check_launcher_update(app: tauri::AppHandle) -> Result<Option<LauncherUpdate>> {
     use tauri_plugin_updater::UpdaterExt;
-    if updater_pubkey().is_none() {
-        return Ok(None);
-    }
     let updater = app.updater().map_err(|e| Error::msg(e.to_string()))?;
     let found = updater.check().await.map_err(|e| Error::msg(e.to_string()))?;
     Ok(found.map(|u| LauncherUpdate { version: u.version, notes: u.body }))
@@ -750,9 +739,6 @@ async fn install_launcher_update(app: tauri::AppHandle) -> Result<()> {
     use tauri_plugin_updater::UpdaterExt;
     if launch::any_running() {
         return Err(Error::msg("Close the game before updating the launcher."));
-    }
-    if updater_pubkey().is_none() {
-        return Err(Error::msg("This build cannot verify updates, so it does not install them."));
     }
     let updater = app.updater().map_err(|e| Error::msg(e.to_string()))?;
     let update = updater
@@ -924,10 +910,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_opener::init())
-        .plugin(match updater_pubkey() {
-            Some(key) => tauri_plugin_updater::Builder::new().pubkey(key).build(),
-            None => tauri_plugin_updater::Builder::new().build(),
-        })
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             list_versions,
             list_loaders,

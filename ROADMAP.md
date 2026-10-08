@@ -75,7 +75,7 @@ the code there is C++/Qt and gets rethought for this stack, not ported.
   the account's own skin instead of `api.mineatar.io`. Written from the
   Minecraft Wiki's API page and not yet proven against a live account.
 - **Launcher self-update.** `tauri-plugin-updater` against GitHub's
-  `latest.json`, verified with a minisign key supplied at build time.
+  `latest.json`, verified with the minisign public key in `tauri.conf.json`.
 - **Modpack updates, Modrinth only.** A pack is identified by its archive's
   hash on import; the instance records the build and the files its index
   installed, and an update removes only what the new build dropped. A

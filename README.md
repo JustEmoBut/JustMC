@@ -129,8 +129,8 @@ Without it, offline accounts still work (single player and LAN only).
 ### Launcher updates
 
 Releases are signed with a [minisign key](https://v2.tauri.app/plugin/updater/#signing-updates);
-a build that carries no public key reports no updates rather than install one
-it cannot verify. `.github/workflows/release.yml` does the release: bump
+the public half is `plugins.updater.pubkey` in `tauri.conf.json`, so every
+build verifies what it installs. `.github/workflows/release.yml` does the release: bump
 `version` in `tauri.conf.json` and `Cargo.toml`, then push a matching tag.
 
 ```bash
@@ -141,12 +141,12 @@ git push origin v0.2.0
 It builds Windows, Linux and macOS bundles, signs them, and attaches them with
 `latest.json` to a **draft** release; publishing the draft is what makes it the
 update installs see (`releases/latest/download/latest.json`). It reads the
-repository secrets `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`,
-`JUSTLAUNCHER_UPDATER_PUBKEY` and, optionally, `JUSTLAUNCHER_MSA_CLIENT_ID`. The
+repository secrets `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+and, optionally, `JUSTLAUNCHER_MSA_CLIENT_ID`. The
 key pair came from `pnpm tauri signer generate`; losing the private key or its
 password means no later release can update an existing install.
 
-A signed build by hand needs the same variables and
+A signed build by hand needs the two signing variables and
 `pnpm tauri build --config src-tauri/tauri.release.conf.json`.
 
 ## Layout

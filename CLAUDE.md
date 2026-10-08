@@ -16,7 +16,7 @@ deliberately out of scope.
 ```bash
 pnpm install
 pnpm tauri dev            # run with hot reload
-pnpm tauri build          # release bundle (nsis/deb/appimage/dmg)
+pnpm tauri build          # release bundle (nsis/deb/appimage/app/dmg)
 
 pnpm check                # svelte-check + tsc
 pnpm test                 # frontend tests, node --test, no framework

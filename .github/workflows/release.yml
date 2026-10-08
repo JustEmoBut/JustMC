@@ -76,11 +76,9 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Signs the update artifacts; the public half is compiled in so the
-          # launcher can verify them.
+          # Signs the update artifacts; the public half is in tauri.conf.json.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          JUSTLAUNCHER_UPDATER_PUBKEY: ${{ secrets.JUSTLAUNCHER_UPDATER_PUBKEY }}
           # Optional: without it the release offers offline accounts only.
           JUSTLAUNCHER_MSA_CLIENT_ID: ${{ secrets.JUSTLAUNCHER_MSA_CLIENT_ID }}
         with:
