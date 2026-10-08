@@ -15,18 +15,34 @@ on:
 permissions:
   contents: write
 
+# A re-pushed tag replaces the run in flight rather than racing it for the
+# same release.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     strategy:
       fail-fast: false
+      # The release profile is fat LTO with one codegen unit, so each build is
+      # one long compile. A universal macOS bundle would run two of them back
+      # to back; one job per architecture runs them side by side, and
+      # latest.json carries an entry for each either way.
       matrix:
         include:
           - platform: windows-latest
           - platform: ubuntu-22.04
           - platform: macos-latest
-            args: --target universal-apple-darwin
+            target: aarch64-apple-darwin
+          - platform: macos-latest
+            target: x86_64-apple-darwin
 
     runs-on: ${{ matrix.platform }}
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@v4
 
@@ -34,7 +50,7 @@ jobs:
         if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - uses: pnpm/action-setup@v4
         with:
@@ -46,11 +62,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ startsWith(matrix.platform, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
 
+      # Keyed per target. A tag can only read caches saved on itself or on
+      # main, so this mostly pays off on a re-run of the same tag.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          key: ${{ matrix.target || matrix.platform }}
 
       - run: pnpm install --frozen-lockfile
 
@@ -71,4 +90,4 @@ jobs:
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
-          args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json
+          args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }} --config src-tauri/tauri.release.conf.json
