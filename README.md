@@ -182,7 +182,7 @@ src-tauri/src/
   screenshots.rs    screenshot listing and delete
 ```
 
-Data lives in `%APPDATA%/JustLauncher` (`~/.local/share/JustLauncher` on Linux),
+Data lives in `%APPDATA%/.justlauncher` (`~/.local/share/.justlauncher` on Linux),
 overridable with `JUSTLAUNCHER_HOME`.
 
 ## Tests

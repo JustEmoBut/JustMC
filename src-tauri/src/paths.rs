@@ -8,7 +8,7 @@ pub fn root() -> PathBuf {
     }
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("JustLauncher")
+        .join(".justlauncher")
 }
 
 pub fn instances() -> PathBuf {
