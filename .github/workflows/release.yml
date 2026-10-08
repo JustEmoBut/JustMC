@@ -1,4 +1,4 @@
-# Builds signed bundles for Windows, Linux and macOS when a version tag is
+# Builds the signed Windows installer when a version tag is
 # pushed, and attaches them with `latest.json` -- the file the launcher's
 # self-update reads from releases/latest -- to a draft release. Publishing the
 # draft is what makes it the update every install sees.
@@ -22,35 +22,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Windows only, by choice: the launcher is released for Windows, and each
+  # build is one long fat-LTO compile. Linux and macOS still build locally.
   build:
-    strategy:
-      fail-fast: false
-      # The release profile is fat LTO with one codegen unit, so each build is
-      # one long compile. A universal macOS bundle would run two of them back
-      # to back; one job per architecture runs them side by side, and
-      # latest.json carries an entry for each either way.
-      matrix:
-        include:
-          - platform: windows-latest
-          - platform: ubuntu-22.04
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-          - platform: macos-latest
-            target: x86_64-apple-darwin
-
-    runs-on: ${{ matrix.platform }}
+    runs-on: windows-latest
     timeout-minutes: 45
     env:
       CARGO_INCREMENTAL: 0
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@v4
-
-      - name: Linux build dependencies
-        if: startsWith(matrix.platform, 'ubuntu')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - uses: pnpm/action-setup@v4
         with:
@@ -61,15 +42,12 @@ jobs:
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
 
-      # Keyed per target. A tag can only read caches saved on itself or on
-      # main, so this mostly pays off on a re-run of the same tag.
+      # A tag can only read caches saved on itself or on main, so this mostly
+      # pays off on a re-run of the same tag.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-          key: ${{ matrix.target || matrix.platform }}
 
       - run: pnpm install --frozen-lockfile
 
@@ -88,4 +66,5 @@ jobs:
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
-          args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }} --config src-tauri/tauri.release.conf.json
+          # The NSIS installer is the one the updater swaps in; no MSI.
+          args: --bundles nsis --config src-tauri/tauri.release.conf.json

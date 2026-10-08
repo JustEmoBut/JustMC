@@ -138,7 +138,7 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-It builds Windows, Linux and macOS bundles, signs them, and attaches them with
+It builds the Windows (NSIS) installer, signs it, and attaches it with
 `latest.json` to a **draft** release; publishing the draft is what makes it the
 update installs see (`releases/latest/download/latest.json`). It reads the
 repository secrets `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
