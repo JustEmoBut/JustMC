@@ -235,10 +235,19 @@ pub async fn profile(loader: Loader, mc: &str, version: &str) -> Result<VersionJ
     }
 
     let dir_for_task = dir.clone();
-    let (profile_text, version_text) =
-        tokio::task::spawn_blocking(move || read_installer(&installer, &dir_for_task))
-            .await
-            .map_err(|e| Error::msg(e.to_string()))??;
+    let installer_for_task = installer.clone();
+    let read = tokio::task::spawn_blocking(move || read_installer(&installer_for_task, &dir_for_task))
+        .await
+        .map_err(|e| Error::msg(e.to_string()))?;
+    let (profile_text, version_text) = match read {
+        Ok(texts) => texts,
+        Err(e) => {
+            // An unreadable installer (one truncated by an older build, say)
+            // would otherwise be trusted by the `is_file` check forever.
+            let _ = tokio::fs::remove_file(&installer).await;
+            return Err(e);
+        }
+    };
 
     tokio::fs::write(dir.join(PROFILE_NAME), &profile_text).await?;
     tokio::fs::write(&json_path, &version_text).await?;

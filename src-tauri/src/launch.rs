@@ -414,6 +414,14 @@ pub async fn run_hook(command: &str, instance: &Instance) -> (bool, String) {
     }
 }
 
+/// One raw output line as text, without its line ending; bytes that are not
+/// UTF-8 become U+FFFD rather than ending the stream.
+fn decode_line(bytes: &[u8]) -> String {
+    let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+    let bytes = bytes.strip_suffix(b"\r").unwrap_or(bytes);
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
 /// Forward one output stream of the game process to the UI, line by line.
 async fn pump_log<R>(
     reader: Option<R>,
@@ -424,8 +432,18 @@ async fn pump_log<R>(
     R: tokio::io::AsyncRead + Unpin,
 {
     let Some(reader) = reader else { return };
-    let mut lines = BufReader::new(reader).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
+    // Bytes, not `lines()`: a JVM on a non-UTF-8 locale (cp1254 on Turkish
+    // Windows) prints invalid UTF-8, `lines()` errors on it, and a pipe nobody
+    // drains blocks the game on its next write.
+    let mut reader = BufReader::new(reader);
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf).await {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let line = decode_line(&buf);
         // Unredacted: this file stays on the user's disk. Anything leaving the
         // app goes through redact.ts instead.
         let mut file = file.lock().await;
@@ -563,7 +581,7 @@ pub async fn launch(
     // crash after five minutes still reaches the log view.
     let app_handle = app.clone();
     let guard = _guard;
-    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+    let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel();
     guard.armed(stop_tx);
     // Before the supervisor exists, so a game that dies at once still finds
     // the flag raised and brings the window back.
@@ -578,15 +596,30 @@ pub async fn launch(
                 pump_log(stderr, app_handle.clone(), id.clone(), log_file.clone()),
             );
         };
+        let mut stopped = false;
         tokio::select! {
             _ = pumps => {}
             // Stop requested: the pipes are abandoned mid-stream, which is the
             // point -- the user wants the process gone, not its last lines.
-            _ = stop_rx => {
+            _ = &mut stop_rx => {
                 let _ = child.start_kill();
+                stopped = true;
             }
         }
-        let code = child.wait().await.ok().and_then(|s| s.code()).unwrap_or(-1);
+        // A game can close its pipes and keep running, so Stop has to stay
+        // live until the process itself is gone.
+        let status = if stopped {
+            child.wait().await
+        } else {
+            tokio::select! {
+                status = child.wait() => status,
+                _ = stop_rx => {
+                    let _ = child.start_kill();
+                    child.wait().await
+                }
+            }
+        };
+        let code = status.ok().and_then(|s| s.code()).unwrap_or(-1);
 
         if !instance.post_exit.is_empty() {
             let (_, output) = run_hook(&instance.post_exit, &instance).await;
@@ -704,6 +737,14 @@ mod tests {
         let flag = args.iter().position(|a| a == "--height").expect("no --height");
         assert_eq!(args[flag + 1], "1080");
         assert!(args.contains(&"1920".to_string()), "{args:?}");
+    }
+
+    #[test]
+    fn a_non_utf8_line_is_decoded_not_fatal() {
+        // "ş" in cp1254 is 0xFE, which is never valid UTF-8.
+        assert_eq!(decode_line(b"Kullan\xfdc\xfd\r\n"), "Kullan\u{FFFD}c\u{FFFD}");
+        assert_eq!(decode_line(b"plain\n"), "plain");
+        assert_eq!(decode_line(b"no newline"), "no newline");
     }
 
     #[test]

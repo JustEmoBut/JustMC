@@ -26,6 +26,9 @@ const BACKOFF: Duration = Duration::from_secs(2);
 /// The longest a server's `Retry-After` is obeyed for. A server that asks for
 /// an hour is not going to be ready in this batch either way.
 const MAX_SERVER_WAIT: Duration = Duration::from_secs(60);
+/// The most a declared size may reserve up front. Above any file a launcher
+/// fetches (the client jar is ~40 MB), far below an allocation that aborts.
+const MAX_PREALLOC: u64 = 64 << 20;
 
 /// One file to fetch. `sha1` and `size` are optional because Fabric's Maven
 /// entries carry neither.
@@ -182,7 +185,9 @@ async fn stream_to_file(
     counted: &mut u64,
 ) -> Attempt {
     let mut stream = response.bytes_stream();
-    let mut body = Vec::with_capacity(job.size.unwrap_or(0) as usize);
+    // Capped: `size` can come from a pack's index, and an absurd one would
+    // abort the whole app on allocation. The Vec still grows past it.
+    let mut body = Vec::with_capacity(job.size.unwrap_or(0).min(MAX_PREALLOC) as usize);
     let mut hasher = Sha1::new();
     while let Some(chunk) = stream.next().await {
         let chunk = match chunk {
@@ -417,7 +422,13 @@ pub async fn fetch(url: &str, path: &std::path::Path) -> Result<()> {
         tokio::fs::create_dir_all(parent).await?;
     }
     let bytes = send(client()?.get(url)).await?.bytes().await?;
-    tokio::fs::write(path, &bytes).await?;
+    // Through a temp file, like every batch download: a cut transfer must not
+    // leave a truncated file that a later `is_file()` check takes as done.
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(".part");
+    let tmp = path.with_file_name(tmp_name);
+    tokio::fs::write(&tmp, &bytes).await?;
+    tokio::fs::rename(&tmp, path).await?;
     Ok(())
 }
 
