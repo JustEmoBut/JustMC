@@ -69,8 +69,15 @@
   }
 
   .window {
+    /* The starting size, not a cap: dragged with the browser's own handle,
+       the same as `Modal`, and kept as long as the window stays open. */
     width: min(1100px, calc(100vw - 40px));
     height: min(760px, calc(100vh - 40px));
+    min-width: 560px;
+    min-height: 360px;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    resize: both;
     display: flex;
     flex-direction: column;
     background: var(--bg-raised);
