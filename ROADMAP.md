@@ -85,8 +85,8 @@ the code there is C++/Qt and gets rethought for this stack, not ported.
   its hooks.
 - **Data packs**, per world, from the Worlds page.
 - **Desktop shortcuts.** `--launch <id>`, written as a `.lnk` (ShellLink COM),
-  `.desktop` or `.command`. A second launcher process is not prevented, so a
-  shortcut used while the launcher is open starts a second copy.
+  `.desktop` or `.command`; with the launcher already open, the single-instance
+  plugin hands the request to it instead of starting a second copy.
 
 ## 1. Log upload
 

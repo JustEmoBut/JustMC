@@ -185,7 +185,9 @@ otherwise inherit it are pinned to `'none'` (objects, frames, workers, media,
 
 `img-src` is deliberately `https:` rather than an allowlist. The images the app
 itself loads *are* a short list — `cdn.modrinth.com` for every project icon and
-`api.mineatar.io` for avatars — but a Modrinth description is author-written
+`textures.minecraft.net` for the skin an avatar is cut from (`Avatar.svelte`
+draws it on a canvas; painting a cross-origin image needs no CORS, only
+reading pixels back would) — but a Modrinth description is author-written
 markdown and embeds images from wherever the author put them: a scan of 75
 projects found 20+ hosts (imgur, raw.githubusercontent, jsdelivr, catbox,
 personal domains). A fixed list cannot cover that, and CSP cannot tell a
@@ -212,11 +214,18 @@ which is why `pack::is_skipped` excludes it from exported zips.
 Deliberately few. The frontend has three: `marked` and
 `dompurify` (paired, for Modrinth descriptions) and `jsdom` for their test.
 `zip`, `reqwest`, `tokio`, `serde` are already present — reach
-for those before adding anything. Three crates here carry real weight, each for one job that is
+for those before adding anything. A few crates here carry real weight, each for one job that is
 not a few lines: `hickory-resolver` (SRV lookups need DNS packets *and* the
 system's resolver configuration on three platforms), `keyring` (three
-different OS credential stores) and `windows-sys` (already in the tree; one
-call, `GlobalMemoryStatusEx`). The frontend has no UI framework beyond
+different OS credential stores), `windows-sys` (already in the tree;
+`GlobalMemoryStatusEx`, and COM's `CoCreateInstance` for the ShellLink object
+`shortcut.rs` writes `.lnk` files with — the two interface vtables it needs are
+declared there by hand, since `windows-sys` carries none),
+`tauri-plugin-updater` (signed self-update; it brings a second `zip` major
+and `tar`) and `tauri-plugin-single-instance` (registered first; a second
+start hands its `--launch` over instead of becoming a second launcher that
+could run an instance twice). Skin uploads build their multipart body by hand
+rather than enabling reqwest's `multipart` feature. The frontend has no UI framework beyond
 Svelte 5 runes and no SvelteKit (a desktop app needs no router); tests use
 `node --test` rather than a test runner. The release profile is tuned for size
 (`opt-level = "z"`, LTO, `panic = "abort"`, strip); keep the binary small.

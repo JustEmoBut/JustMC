@@ -6,9 +6,9 @@
 //! one is mostly downloading, and why exporting walks the game folder asking
 //! which jars Modrinth knows and ships only the rest as overrides.
 //!
-//! Only the loaders the launcher can install are accepted; a Forge or NeoForge
-//! pack is rejected here rather than failing at launch with an unreadable Java
-//! error.
+//! Every loader the launcher installs is accepted, Forge and NeoForge
+//! included. A pack Modrinth hosts is recognised by its archive's hash, which
+//! is what lets `update` move the instance to a newer build later.
 
 use crate::download::{self, Job};
 use crate::error::{Error, Result};
