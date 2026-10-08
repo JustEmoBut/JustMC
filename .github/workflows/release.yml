@@ -56,6 +56,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - uses: tauri-apps/tauri-action@v0
+        id: tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Signs the update artifacts; the public half is in tauri.conf.json.
@@ -73,3 +74,34 @@ jobs:
           includeUpdaterJson: true
           # The NSIS installer is the one the updater swaps in; no MSI.
           args: --bundles nsis --config src-tauri/tauri.release.conf.json
+
+      # A portable copy updates by replacing its own exe (`portable.rs`), so it
+      # needs the bare exe, signed like the installer, and its own entry in
+      # latest.json -- the key `portable::UPDATER_TARGET` asks for.
+      - name: Portable exe
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VERSION: ${{ steps.tauri.outputs.appVersion }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = "v$env:VERSION"
+          $name = "JustLauncher_$($env:VERSION)_x64-portable.exe"
+          Copy-Item src-tauri/target/release/justlauncher.exe $name
+          pnpm tauri signer sign --app-version $env:VERSION $name
+          if ($LASTEXITCODE -ne 0) { throw "signing failed" }
+
+          gh release download $tag --pattern latest.json --clobber
+          if ($LASTEXITCODE -ne 0) { throw "latest.json not found on $tag" }
+          $manifest = Get-Content latest.json -Raw | ConvertFrom-Json
+          $entry = [pscustomobject]@{
+            signature = (Get-Content "$name.sig" -Raw).Trim()
+            url       = "https://github.com/${{ github.repository }}/releases/download/$tag/$name"
+          }
+          $manifest.platforms | Add-Member -NotePropertyName windows-x86_64-portable -NotePropertyValue $entry -Force
+          $manifest | ConvertTo-Json -Depth 10 | Set-Content latest.json -Encoding utf8NoBOM
+
+          gh release upload $tag $name "$name.sig" latest.json --clobber
+          if ($LASTEXITCODE -ne 0) { throw "upload failed" }

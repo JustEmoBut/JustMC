@@ -6,6 +6,7 @@ pub mod install;
 pub mod instance;
 pub mod jre;
 pub mod pack;
+pub mod portable;
 pub mod launch;
 pub mod mojang;
 pub mod mrpack;
@@ -725,8 +726,7 @@ struct LauncherUpdate {
 /// and the bundler refuses to build updater artifacts without it.
 #[tauri::command]
 async fn check_launcher_update(app: tauri::AppHandle) -> Result<Option<LauncherUpdate>> {
-    use tauri_plugin_updater::UpdaterExt;
-    let updater = app.updater().map_err(|e| Error::msg(e.to_string()))?;
+    let updater = updater_for(&app)?;
     let found = updater.check().await.map_err(|e| Error::msg(e.to_string()))?;
     Ok(found.map(|u| LauncherUpdate { version: u.version, notes: u.body }))
 }
@@ -736,21 +736,45 @@ async fn check_launcher_update(app: tauri::AppHandle) -> Result<Option<LauncherU
 /// with it the play time and the post-exit command.
 #[tauri::command]
 async fn install_launcher_update(app: tauri::AppHandle) -> Result<()> {
-    use tauri_plugin_updater::UpdaterExt;
     if launch::any_running() {
         return Err(Error::msg("Close the game before updating the launcher."));
     }
-    let updater = app.updater().map_err(|e| Error::msg(e.to_string()))?;
-    let update = updater
+    let update = updater_for(&app)?
         .check()
         .await
         .map_err(|e| Error::msg(e.to_string()))?
         .ok_or_else(|| Error::msg("There is no newer release."))?;
-    update
-        .download_and_install(|_, _| {}, || {})
-        .await
-        .map_err(|e| Error::msg(e.to_string()))?;
-    app.restart()
+
+    let Some(exe) = portable::exe() else {
+        update
+            .download_and_install(|_, _| {}, || {})
+            .await
+            .map_err(|e| Error::msg(e.to_string()))?;
+        app.restart()
+    };
+
+    // `download` verifies the signature before handing the bytes over.
+    let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| Error::msg(e.to_string()))?;
+    portable::replace(&exe, &bytes)?;
+    // The new process would otherwise find this one's single-instance lock,
+    // hand its arguments over and exit, leaving nothing running once this
+    // one does.
+    tauri_plugin_single_instance::destroy(&app);
+    std::process::Command::new(&exe).spawn()?;
+    app.exit(0);
+    Ok(())
+}
+
+/// The updater, pointed at the portable entry of `latest.json` when this is
+/// a portable copy, so it downloads an exe rather than an installer.
+fn updater_for(app: &tauri::AppHandle) -> Result<tauri_plugin_updater::Updater> {
+    use tauri_plugin_updater::UpdaterExt;
+    let builder = app.updater_builder();
+    let builder = match portable::exe() {
+        Some(_) => builder.target(portable::UPDATER_TARGET),
+        None => builder,
+    };
+    builder.build().map_err(|e| Error::msg(e.to_string()))
 }
 
 // ------------------------------------------------------------------- settings
@@ -882,6 +906,7 @@ fn list_java() -> Vec<java::JavaInstall> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    portable::clean_up();
     *STARTUP_LAUNCH.lock().unwrap() = shortcut::launch_arg(std::env::args().skip(1));
     tauri::Builder::default()
         // First, as the plugin requires. A second start -- a shortcut clicked
