@@ -7,10 +7,13 @@
   let {
     accounts,
     onclose,
+    embedded = false,
     onchange,
   }: {
     accounts: Account[];
     onclose: () => void;
+    /** Shown as a page of a window rather than as its own dialog. */
+    embedded?: boolean;
     onchange: () => Promise<void>;
   } = $props();
 
@@ -60,7 +63,7 @@
   }
 </script>
 
-<Modal title="Accounts" {onclose} width="480px">
+<Modal title="Accounts" {onclose} {embedded} width="480px">
   {#if accounts.length}
     <ul class="list">
       {#each accounts as account (account.id)}

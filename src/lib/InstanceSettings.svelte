@@ -17,11 +17,14 @@
   let {
     instance,
     onclose,
+    embedded = false,
     onsaved,
     onexport,
   }: {
     instance: Instance;
     onclose: () => void;
+    /** Shown as a page of a window rather than as its own dialog. */
+    embedded?: boolean;
     onsaved: () => Promise<void>;
     onexport: (instance: Instance) => void;
   } = $props();
@@ -112,7 +115,7 @@
   }
 </script>
 
-<Modal title={instance.name} {onclose} width="480px">
+<Modal title={instance.name} {onclose} {embedded} width="480px">
   <div class="field">
     <label for="s-name">Name</label>
     <input id="s-name" bind:value={draft.name} />

@@ -83,6 +83,72 @@ Check GitHub Releases, offer the update, swap the binary. The original ships a
 standalone updater exe (`launcher/updater/`); a Tauri updater plugin likely
 fits this stack better.
 
+## 3. Modpack updates
+
+An imported `.mrpack` or CurseForge pack records nothing about where it came
+from, so moving to the pack's next version means a fresh instance. Store the
+source (platform, project, version) in `instance.json` on import, then offer
+newer versions and swap the pack's files while keeping the player's own.
+Reference: `launcher/ui/pages/instance/ManagedPackPage`, the `ManagedPack*`
+settings.
+
+## 4. An account per instance
+
+`launch` always takes the selected account. Let an instance name the account
+it launches with (Prism's `UseAccountForInstance`), falling back to the
+selected one when that account is gone.
+
+## 5. Environment variables per instance
+
+Pass user-defined variables to the JVM (Prism's `Env`), not only the `INST_*`
+set the hooks see. Most of item 11 rides on this.
+
+## 6. Data packs
+
+A tab for `saves/<world>/datapacks`, beside the Worlds panel, with the same
+add/remove/toggle the other content folders have. Reference: `DataPackPage`.
+
+## 7. Desktop shortcuts
+
+A `--launch <id>` command-line argument, and a dialog that writes a `.lnk`,
+`.desktop` or `.command` file pointing at it. Reference:
+`CreateShortcutDialog`.
+
+## 8. Log upload
+
+Upload a log to mclogs and hand back the link, instead of only copying it.
+Goes through `redact.ts` like every other path out of the app.
+
+## 9. Notes
+
+A free-text note per instance, kept in `instance.json`.
+
+## 10. Instance groups
+
+Fold the instance grid into named groups, the group stored per instance.
+
+## 11. Linux and GPU toggles
+
+Feral GameMode, MangoHud, the discrete GPU (`DRI_PRIME`), Zink and the
+system's GLFW/OpenAL — each an environment variable or a JVM argument, so
+built on item 5.
+
+## 12. Mod list export
+
+Export an instance's mods as HTML, Markdown or CSV. Reference:
+`ExportToModListDialog`.
+
+## 13. Console behaviour
+
+Open the log view when the game crashes (`ShowConsoleOnError`), and close it
+when the game exits cleanly (`AutoCloseConsole`).
+
+## 14. Concurrent downloads and proxy
+
+Make `download.rs`'s fixed concurrency a setting, and offer a proxy setting
+for networks where the system one is not enough (`reqwest` already reads the
+system proxy).
+
 ## Tech debt
 
 Marked `ponytail:` in the code. Nothing is outstanding: the last of it was

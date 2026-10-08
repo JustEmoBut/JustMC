@@ -126,7 +126,7 @@ directories. See `paths.rs`.
 instance nor an account: what a **new** instance starts with (memory, Java, JVM
 args), whether the window closes while a game runs, and the user's own
 CurseForge API key (plain text; empty turns CurseForge off). Saving them never
-touches an existing instance — that is what the instance dialog is for.
+touches an existing instance — that is what the instance window's Settings page is for.
 
 Missing or unreadable falls back to defaults rather than erroring, and the
 struct is `#[serde(default)]`, so a file from an older or newer build still

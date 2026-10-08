@@ -1,7 +1,8 @@
-<script lang="ts">
+<script lang="ts" module>
   /**
    * A small stroke icon set, inline rather than from a library: the app needs
    * a handful of glyphs and an icon package would be a dependency and a bundle for it.
+   * Drawn on a 24px grid with round caps, so they sit evenly at any size.
    */
   export type IconName =
     | "play"
@@ -20,70 +21,85 @@
     | "server"
     | "globe"
     | "package"
-    | "gear";
+    | "gear"
+    | "terminal"
+    | "puzzle"
+    | "layers"
+    | "sparkles";
+</script>
 
+<script lang="ts">
   let { name, size = 15 }: { name: IconName; size?: number } = $props();
 </script>
 
 <svg
   width={size}
   height={size}
-  viewBox="0 0 16 16"
+  viewBox="0 0 24 24"
   fill="none"
   stroke="currentColor"
-  stroke-width="1.4"
+  stroke-width="1.9"
   stroke-linecap="round"
   stroke-linejoin="round"
   aria-hidden="true"
 >
   {#if name === "play"}
-    <path d="M4.5 3.2 12.5 8l-8 4.8z" fill="currentColor" stroke-width="1" />
+    <path d="M7 4.8v14.4a1 1 0 0 0 1.5.86l11.6-7.2a1 1 0 0 0 0-1.72L8.5 3.94A1 1 0 0 0 7 4.8z" fill="currentColor" />
   {:else if name === "stop"}
-    <rect x="4" y="4" width="8" height="8" rx="1" fill="currentColor" stroke-width="1" />
+    <rect x="5.5" y="5.5" width="13" height="13" rx="2.5" fill="currentColor" />
   {:else if name === "plus"}
-    <path d="M8 3.5v9M3.5 8h9" />
+    <path d="M12 5v14M5 12h14" />
   {:else if name === "image"}
-    <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
-    <circle cx="6" cy="6.5" r="1" />
-    <path d="M3 11.5 6.5 8l2.5 2.5L11 8.5l2 2" />
+    <rect x="3" y="4" width="18" height="16" rx="3" />
+    <circle cx="9" cy="9.5" r="1.8" />
+    <path d="m21 15.5-4.3-4.3a1.5 1.5 0 0 0-2.1 0L5 20.5" />
   {:else if name === "import"}
-    <path d="M8 2.5v7M5 7l3 3 3-3M3 12.5h10" />
+    <path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5M4.5 15.5v2a2.5 2.5 0 0 0 2.5 2.5h10a2.5 2.5 0 0 0 2.5-2.5v-2" />
   {:else if name === "export"}
-    <path d="M8 10.5v-7M5 6l3-3 3 3M3 12.5h10" />
+    <path d="M12 14.5v-11M7.5 8 12 3.5 16.5 8M4.5 15.5v2a2.5 2.5 0 0 0 2.5 2.5h10a2.5 2.5 0 0 0 2.5-2.5v-2" />
   {:else if name === "folder"}
-    <path d="M2 4.5h4l1.2 1.5H14v6.5H2z" />
+    <path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h3.4a2 2 0 0 1 1.5.7l1.2 1.3H18a2.5 2.5 0 0 1 2.5 2.5v7.5A2.5 2.5 0 0 1 18 19.5H6a2.5 2.5 0 0 1-2.5-2.5z" />
   {:else if name === "sliders"}
-    <path d="M2.5 4.5h11M2.5 11.5h11" />
-    <circle cx="6" cy="4.5" r="1.7" fill="var(--bg-raised)" />
-    <circle cx="10.5" cy="11.5" r="1.7" fill="var(--bg-raised)" />
+    <path d="M4 7h7M15 7h5M4 17h3M11 17h9" />
+    <circle cx="13" cy="7" r="2.2" />
+    <circle cx="9" cy="17" r="2.2" />
   {:else if name === "trash"}
-    <path d="M2.8 4.2h10.4M6.4 4.2V2.8h3.2v1.4M4.2 4.2l.6 9h6.4l.6-9M6.7 6.6v4.2M9.3 6.6v4.2" />
+    <path d="M4 6.5h16M9.5 6.5V4.8a1.3 1.3 0 0 1 1.3-1.3h2.4a1.3 1.3 0 0 1 1.3 1.3v1.7M6.2 6.5l.9 12.1a2 2 0 0 0 2 1.9h5.8a2 2 0 0 0 2-1.9l.9-12.1M10 10.5v6M14 10.5v6" />
   {:else if name === "user"}
-    <circle cx="8" cy="5.6" r="2.5" />
-    <path d="M3 13.4c0-2.4 2.2-3.8 5-3.8s5 1.4 5 3.8" />
+    <circle cx="12" cy="8.5" r="3.8" />
+    <path d="M4.5 20c.8-3.5 3.8-5.5 7.5-5.5s6.7 2 7.5 5.5" />
   {:else if name === "gear"}
-    <circle cx="8" cy="8" r="2.2" />
-    <path
-      d="M8 1.8v1.6M8 12.6v1.6M2.6 8H1M15 8h-1.6M4.2 4.2 3 3M13 13l-1.2-1.2M11.8 4.2 13 3M3 13l1.2-1.2"
-    />
+    <path d="M10.3 3.6a1.8 1.8 0 0 1 3.4 0l.3.9a1.8 1.8 0 0 0 2.5 1l.8-.4a1.8 1.8 0 0 1 2.4 2.4l-.4.8a1.8 1.8 0 0 0 1 2.5l.9.3a1.8 1.8 0 0 1 0 3.4l-.9.3a1.8 1.8 0 0 0-1 2.5l.4.8a1.8 1.8 0 0 1-2.4 2.4l-.8-.4a1.8 1.8 0 0 0-2.5 1l-.3.9a1.8 1.8 0 0 1-3.4 0l-.3-.9a1.8 1.8 0 0 0-2.5-1l-.8.4a1.8 1.8 0 0 1-2.4-2.4l.4-.8a1.8 1.8 0 0 0-1-2.5l-.9-.3a1.8 1.8 0 0 1 0-3.4l.9-.3a1.8 1.8 0 0 0 1-2.5l-.4-.8a1.8 1.8 0 0 1 2.4-2.4l.8.4a1.8 1.8 0 0 0 2.5-1z" />
+    <circle cx="12" cy="12" r="3" />
   {:else if name === "copy"}
-    <rect x="5.5" y="5.5" width="8" height="8" rx="1.2" />
-    <path d="M10.5 3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1" />
+    <rect x="8.5" y="8.5" width="12" height="12" rx="2.5" />
+    <path d="M15.5 8.5V6a2.5 2.5 0 0 0-2.5-2.5H6A2.5 2.5 0 0 0 3.5 6v7A2.5 2.5 0 0 0 6 15.5h2.5" />
   {:else if name === "refresh"}
-    <path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5V5h-2.5" />
+    <path d="M20 12a8 8 0 1 1-2.6-5.9L20 8.5M20 3.5v5h-5" />
   {:else if name === "server"}
-    <rect x="2.5" y="3" width="11" height="4" rx="1" />
-    <rect x="2.5" y="9" width="11" height="4" rx="1" />
-    <path d="M5 5h.01M5 11h.01" />
+    <rect x="3.5" y="4" width="17" height="7" rx="2.2" />
+    <rect x="3.5" y="13" width="17" height="7" rx="2.2" />
+    <path d="M7.5 7.5h.01M7.5 16.5h.01M11 7.5h5.5M11 16.5h5.5" />
   {:else if name === "globe"}
-    <circle cx="8" cy="8" r="5.5" />
-    <path d="M2.7 6.2h10.6M2.7 9.8h10.6M8 2.5c1.6 1.6 2.4 3.5 2.4 5.5S9.6 12 8 13.5C6.4 12 5.6 10 5.6 8s.8-3.9 2.4-5.5z" />
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M3.5 12h17M12 3.5c2.3 2.4 3.4 5.2 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.2-3.4-8.5S9.7 5.9 12 3.5z" />
   {:else if name === "package"}
-    <path d="M8 2.2 13.5 5v6L8 13.8 2.5 11V5z" />
-    <path d="M2.5 5 8 7.8 13.5 5M8 7.8v6" />
+    <path d="M12 3 20 7.4v9.2L12 21l-8-4.4V7.4z" />
+    <path d="M4 7.4 12 12l8-4.6M12 12v9M8 5.2l8 4.5" />
   {:else if name === "search"}
-    <circle cx="7.2" cy="7.2" r="4.2" />
-    <path d="m10.4 10.4 3 3" />
+    <circle cx="10.8" cy="10.8" r="6.3" />
+    <path d="m15.5 15.5 4.5 4.5" />
+  {:else if name === "terminal"}
+    <rect x="3" y="4" width="18" height="16" rx="3" />
+    <path d="m7.5 9.5 3 2.5-3 2.5M13 15h3.5" />
+  {:else if name === "puzzle"}
+    <path d="M9.5 4.5a2 2 0 1 1 4 0V6H17a1 1 0 0 1 1 1v3.5h1.5a2 2 0 1 1 0 4H18V18a1 1 0 0 1-1 1h-3.5v-1.5a2 2 0 1 0-4 0V19H6a1 1 0 0 1-1-1v-3.5h1.5a2 2 0 1 0 0-4H5V7a1 1 0 0 1 1-1h3.5z" />
+  {:else if name === "layers"}
+    <path d="m12 3.5 8.5 4.3L12 12 3.5 7.8z" />
+    <path d="m3.5 12 8.5 4.2 8.5-4.2M3.5 16.2 12 20.5l8.5-4.3" />
+  {:else if name === "sparkles"}
+    <path d="M10 3.5c.5 3.6 2.4 5.5 6 6-3.6.5-5.5 2.4-6 6-.5-3.6-2.4-5.5-6-6 3.6-.5 5.5-2.4 6-6z" />
+    <path d="M18 14c.3 1.8 1.2 2.7 3 3-1.8.3-2.7 1.2-3 3-.3-1.8-1.2-2.7-3-3 1.8-.3 2.7-1.2 3-3z" />
   {/if}
 </svg>
 

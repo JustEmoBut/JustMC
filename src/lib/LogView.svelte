@@ -15,7 +15,8 @@
     /** "" is the live output of this session; otherwise "source/file". */
     choice: string;
     onchoose: (choice: string) => void;
-    onclose: () => void;
+    /** Absent when the log is a page of the instance window, which owns closing. */
+    onclose?: () => void;
   } = $props();
 
   function label(log: LogFile) {
@@ -55,7 +56,7 @@
   }
 </script>
 
-<section class="panel">
+<section class="panel" class:fill={!onclose}>
   <header>
     <h3>Game output</h3>
     <select
@@ -73,7 +74,9 @@
     <button class="ghost" onclick={copy} title="Copies with tokens and usernames removed">
       {copied ? "Copied, redacted" : "Copy"}
     </button>
-    <button class="ghost" onclick={onclose} aria-label="Close log">✕</button>
+    {#if onclose}
+      <button class="ghost" onclick={onclose} aria-label="Close log">✕</button>
+    {/if}
   </header>
   <div class="lines" bind:this={box} {onscroll}>
     {#each lines as line, i (i)}
@@ -83,6 +86,13 @@
 </section>
 
 <style>
+  .panel.fill {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+    border-top: none;
+  }
+
   .panel {
     border-top: 1px solid var(--border);
     box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.035);

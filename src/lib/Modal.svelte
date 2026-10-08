@@ -7,20 +7,33 @@
     width = "460px",
     children,
     footer,
+    embedded = false,
   }: {
     title: string;
     onclose: () => void;
     width?: string;
     children: Snippet;
     footer?: Snippet;
+    /** Rendered as a page of a `PageWindow`: no backdrop, no title bar, and
+        Escape is left to the window, which owns the close. */
+    embedded?: boolean;
   } = $props();
 
   function onkeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") onclose();
+    if (e.key === "Escape" && !embedded) onclose();
   }
 </script>
 
 <svelte:window {onkeydown} />
+
+{#if embedded}
+  <div class="embedded-page" aria-label={title}>
+    <div class="body">{@render children()}</div>
+    {#if footer}
+      <footer>{@render footer()}</footer>
+    {/if}
+  </div>
+{:else}
 
 <!-- The backdrop does not close. A dialog here holds a half-filled form more
      often than not, and a stray click beside it is not a decision to discard
@@ -37,8 +50,30 @@
     {/if}
   </div>
 </div>
+{/if}
 
 <style>
+  /* Embedded, the page fills the window, so its body is a column a list can
+     grow into: `.embedded-page` is what a page's own styles key on to drop
+     the fixed heights it uses as a dialog. */
+  .embedded-page {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .embedded-page .body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .embedded-page footer {
+    border-radius: 0;
+  }
+
   .backdrop {
     position: fixed;
     inset: 0;

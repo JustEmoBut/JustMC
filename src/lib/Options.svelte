@@ -7,11 +7,14 @@
     instance,
     running,
     onclose,
+    embedded = false,
   }: {
     instance: Instance;
     /** The game rewrites options.txt when it exits, so edits made now are lost. */
     running: boolean;
     onclose: () => void;
+    /** Shown as a page of a window rather than as its own dialog. */
+    embedded?: boolean;
   } = $props();
 
   let text = $state("");
@@ -39,7 +42,7 @@
   }
 </script>
 
-<Modal title="Options — {instance.name}" {onclose} width="720px">
+<Modal title="Options — {instance.name}" {onclose} {embedded} width="720px">
   {#if loading}
     <p class="muted">Reading options.txt…</p>
   {:else}
@@ -90,5 +93,13 @@
 
   .warn {
     color: #fbbf24;
+  }
+
+  /* In a window page the list takes whatever height is left. */
+  :global(.embedded-page) textarea {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+    max-height: none;
   }
 </style>

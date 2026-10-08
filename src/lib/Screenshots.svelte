@@ -5,7 +5,11 @@
   import Modal from "./Modal.svelte";
   import { notify } from "./toast.svelte";
 
-  let { instance, onclose }: { instance: Instance; onclose: () => void } = $props();
+  let {
+    instance,
+    onclose,
+    embedded = false,
+  }: { instance: Instance; onclose: () => void; embedded?: boolean } = $props();
 
   let shots = $state<Screenshot[]>([]);
   let loading = $state(true);
@@ -41,7 +45,7 @@
   }
 </script>
 
-<Modal title="Screenshots — {instance.name}" {onclose} width="860px">
+<Modal title="Screenshots — {instance.name}" {onclose} {embedded} width="860px">
   {#if loading}
     <p class="muted">Reading the screenshots folder…</p>
   {:else if shots.length === 0}

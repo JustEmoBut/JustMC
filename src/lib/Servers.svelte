@@ -14,12 +14,15 @@
     instance,
     running,
     onclose,
+    embedded = false,
     onjoin,
   }: {
     instance: Instance;
     /** The game rewrites servers.dat on exit and would drop an edit made under it. */
     running: boolean;
     onclose: () => void;
+    /** Shown as a page of a window rather than as its own dialog. */
+    embedded?: boolean;
     /** Launch straight into this address; the dialog closes behind it. */
     onjoin: (address: string) => void;
   } = $props();
@@ -151,7 +154,7 @@
   }
 </script>
 
-<Modal title="Servers — {instance.name}" {onclose} width="640px">
+<Modal title="Servers — {instance.name}" {onclose} {embedded} width="640px">
   {#if !running && quickPlay === false}
     <p class="muted note">
       Joining from here needs Minecraft 1.20 or newer; this instance is on

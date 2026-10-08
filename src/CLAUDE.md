@@ -28,7 +28,7 @@ table needs `display: block` before it will.
 
 ## Browsing is paged, filtered and racy
 
-`Mods.svelte` pages Modrinth by **how many results it already holds**, never by
+`ModBrowser.svelte` pages Modrinth by **how many results it already holds**, never by
 a page counter — appending then cannot drift out of step with the list. Each
 search carries a run id so a slow earlier request cannot append to a newer
 one's results, and "hide installed" tops the list up rather than leaving two
@@ -47,6 +47,35 @@ the selection, never the download.
 ## Instance actions live in one place
 
 `src/lib/actions.ts` holds open-folder, export, duplicate, stop and delete.
-The side panel, the settings dialog and the right-click menu (`ContextMenu.svelte`) all call it;
-adding an action there is what makes it appear everywhere it belongs.
+The side panel (`InstancePanel.svelte`), the instance settings page and the
+right-click menu (`instanceMenu.ts`) all call it; adding an action there is
+what makes it appear everywhere it belongs.
+
+## The layout is Prism's: a toolbar, a grid, a column of actions
+
+The main window is `TopBar`, the instance grid, `InstancePanel` (one vertical
+list of actions, Launch on top) and `StatusBar`. Everything done *inside* an
+instance — its log, settings, content folders, worlds, servers, screenshots,
+options — is a page of `InstanceWindow`; launcher-wide preferences, accounts
+and the storage sweep are pages of `SettingsWindow`. Both are `PageWindow`:
+the page list on the left, the open page beside it. Launching, or a crash,
+opens the instance window on its log page, the way Prism shows its console.
+
+A page is an ordinary dialog component rendered with `embedded`: it passes
+that on to its own `Modal`, which then drops the backdrop, the title bar and
+its Escape handler, since the window owns closing. Only the component's
+outermost `Modal` takes it — a confirmation the page opens stays a real
+dialog. A page remounts when you switch away and back, so it keeps no state
+across that; anything that must survive (the live game log) lives in a
+module, as `gamelog.svelte.ts` does.
+
+New instance, export and delete stay plain dialogs: they are one decision,
+not a place you work in.
+
+## Icons are drawn here
+
+`Icon.svelte` is the whole set, hand-drawn strokes on a 24px grid with round
+caps — no icon package. Add a glyph by adding a name to `IconName` and a
+branch to the markup; keep to `currentColor` and the shared stroke width so
+it sits with the rest.
 

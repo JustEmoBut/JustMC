@@ -8,12 +8,15 @@
     instance,
     running,
     onclose,
+    embedded = false,
     onplay,
   }: {
     instance: Instance;
     /** A world being written to while it is copied or deleted is not safe. */
     running: boolean;
     onclose: () => void;
+    /** Shown as a page of a window rather than as its own dialog. */
+    embedded?: boolean;
     /** Launch straight into this save folder; the dialog closes behind it. */
     onplay: (folder: string) => void;
   } = $props();
@@ -121,7 +124,7 @@
   }
 </script>
 
-<Modal title="Worlds — {instance.name}" {onclose} width="620px">
+<Modal title="Worlds — {instance.name}" {onclose} {embedded} width="620px">
   {#if loading}
     <p class="muted">Reading the saves folder…</p>
   {:else if worlds.length === 0}

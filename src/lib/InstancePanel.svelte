@@ -9,12 +9,7 @@
     status,
     onlaunch,
     onrestart,
-    onedit,
-    onmods,
-    onworlds,
-    onoptions,
-    onservers,
-    onscreenshots,
+    onopen,
     onexport,
     onchanged,
   }: {
@@ -23,12 +18,8 @@
     status: string | undefined;
     onlaunch: (instance: Instance) => void;
     onrestart: (instance: Instance) => void;
-    onedit: (instance: Instance) => void;
-    onmods: (instance: Instance) => void;
-    onworlds: (instance: Instance) => void;
-    onoptions: (instance: Instance) => void;
-    onservers: (instance: Instance) => void;
-    onscreenshots: (instance: Instance) => void;
+    /** Open the instance window on one of its pages. */
+    onopen: (instance: Instance, page: string) => void;
     onexport: (instance: Instance) => void;
     onchanged: () => Promise<void>;
   } = $props();
@@ -95,11 +86,12 @@
     </div>
   </header>
 
+  <!-- Prism's instance toolbar: one column of actions, the launch on top. -->
   <div class="actions">
     {#if status === "Running"}
       <button onclick={() => actions.stopInstance(instance)}>
         <Icon name="stop" size={14} />
-        Stop
+        Kill
       </button>
       <button onclick={() => onrestart(instance)} title="Quit the game and start it again">
         <Icon name="refresh" size={14} />
@@ -108,42 +100,60 @@
     {:else}
       <button class="primary launch" disabled={!!status} onclick={() => onlaunch(instance)}>
         <Icon name="play" size={14} />
-        {status ?? "Play"}
+        {status ?? "Launch"}
       </button>
     {/if}
 
-    <span class="spacer"></span>
+    <hr />
+    <button onclick={() => onopen(instance, "settings")}>
+      <Icon name="sliders" size={14} />
+      Edit
+    </button>
+    {#if instance.loader !== "vanilla"}
+      <button onclick={() => onopen(instance, "mods")}>
+        <Icon name="puzzle" size={14} />
+        Mods
+      </button>
+    {/if}
+    <button onclick={() => onopen(instance, "worlds")}>
+      <Icon name="globe" size={14} />
+      Worlds
+    </button>
+    <button onclick={() => onopen(instance, "servers")}>
+      <Icon name="server" size={14} />
+      Servers
+    </button>
+    <button onclick={() => onopen(instance, "screenshots")}>
+      <Icon name="image" size={14} />
+      Screenshots
+    </button>
+    <button onclick={() => onopen(instance, "log")}>
+      <Icon name="terminal" size={14} />
+      Log
+    </button>
+    <button onclick={() => actions.openFolder(instance)}>
+      <Icon name="folder" size={14} />
+      Folder
+    </button>
 
+    <hr />
     <!-- What is done *to* the instance rather than opened inside it. -->
+    <button onclick={() => onexport(instance)}>
+      <Icon name="export" size={14} />
+      Export
+    </button>
+    <button onclick={duplicate} disabled={duplicating || !!status}>
+      <Icon name="copy" size={14} />
+      {duplicating ? "Copying…" : "Copy"}
+    </button>
     <button
-      class="ghost"
+      class="destructive"
       disabled={!!status}
-      title={status ? "Stop the game before editing this instance." : "Edit"}
-      aria-label="Edit"
-      onclick={() => onedit(instance)}
-    >
-      <Icon name="sliders" />
-    </button>
-    <button
-      class="ghost"
-      onclick={duplicate}
-      disabled={duplicating || !!status}
-      title={duplicating ? "Copying…" : "Duplicate"}
-      aria-label="Duplicate"
-    >
-      <Icon name="copy" />
-    </button>
-    <button class="ghost" onclick={() => onexport(instance)} title="Export" aria-label="Export">
-      <Icon name="export" />
-    </button>
-    <button
-      class="ghost destructive"
-      disabled={!!status}
-      title={status ? "Stop the game before deleting this instance." : "Delete"}
-      aria-label="Delete"
+      title={status ? "Stop the game before deleting this instance." : undefined}
       onclick={() => (confirmingDelete = true)}
     >
-      <Icon name="trash" />
+      <Icon name="trash" size={14} />
+      Delete
     </button>
   </div>
 
@@ -174,41 +184,6 @@
     </div>
   </dl>
 
-  <!-- The panels an instance holds: cards rather than identical rows, so the
-       eye picks one out by its icon instead of reading a list. -->
-  <h2 class="eyebrow">Manage</h2>
-  <div class="tiles">
-    <button onclick={() => onmods(instance)}>
-      <Icon name="package" size={18} />
-      <strong>Content</strong>
-      <span>Mods, resource packs, shaders</span>
-    </button>
-    <button onclick={() => onworlds(instance)}>
-      <Icon name="globe" size={18} />
-      <strong>Worlds</strong>
-      <span>Back up, restore, play</span>
-    </button>
-    <button onclick={() => onservers(instance)}>
-      <Icon name="server" size={18} />
-      <strong>Servers</strong>
-      <span>Multiplayer list</span>
-    </button>
-    <button onclick={() => onoptions(instance)}>
-      <Icon name="gear" size={18} />
-      <strong>Options</strong>
-      <span>The game's options.txt</span>
-    </button>
-    <button onclick={() => onscreenshots(instance)}>
-      <Icon name="image" size={18} />
-      <strong>Screenshots</strong>
-      <span>Everything you captured</span>
-    </button>
-    <button onclick={() => actions.openFolder(instance)}>
-      <Icon name="folder" size={18} />
-      <strong>Folder</strong>
-      <span>Open in the file manager</span>
-    </button>
-  </div>
 </section>
 
 <style>
@@ -262,31 +237,44 @@
 
   .actions {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
+    gap: 4px;
   }
 
   .actions button {
     display: flex;
     align-items: center;
-    gap: 8px;
-    min-height: 40px;
+    gap: 10px;
+    min-height: 34px;
+    text-align: left;
   }
 
-  .actions button.ghost {
-    width: 40px;
-    justify-content: center;
-    padding: 0;
+  .actions button:not(.primary) {
+    background: none;
+    border-color: transparent;
+    color: var(--text-dim);
+  }
+
+  .actions button:not(.primary):hover:not(:disabled) {
+    background: var(--bg-panel);
+    color: var(--text);
+  }
+
+  .actions hr {
+    width: 100%;
+    margin: 6px 0;
+    border: none;
+    border-top: 1px solid var(--border);
   }
 
   /* The one filled control in the window: Play is the reason it exists. */
   .launch {
-    flex: 1;
     justify-content: center;
+    min-height: 40px;
     font-size: 15px;
   }
 
-  .destructive:hover:not(:disabled) {
+  .actions button.destructive:not(.primary):hover:not(:disabled) {
     background: rgb(248 113 113 / 0.1);
     color: var(--danger);
   }
@@ -348,58 +336,5 @@
 
   dd.data {
     font-size: 14px;
-  }
-
-  h2.eyebrow {
-    margin-bottom: -8px;
-  }
-
-  .tiles {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-
-  .tiles button {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    column-gap: 12px;
-    row-gap: 2px;
-    align-items: center;
-    padding: 12px 14px;
-    text-align: left;
-    background: var(--bg);
-    border-color: var(--border);
-    border-radius: var(--radius-lg);
-    color: var(--text-dim);
-  }
-
-  .tiles button :global(svg) {
-    grid-row: span 2;
-    color: var(--text-faint);
-    transition: color 0.15s var(--ease);
-  }
-
-  .tiles button:hover:not(:disabled) {
-    background: var(--bg-panel);
-    border-color: var(--border-strong);
-  }
-
-  .tiles button:hover :global(svg) {
-    color: var(--accent-lit);
-  }
-
-  .tiles strong {
-    font-size: 14px;
-    color: var(--text);
-  }
-
-  .tiles span {
-    font-size: 12px;
-    font-weight: 400;
-    color: var(--text-faint);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 </style>
