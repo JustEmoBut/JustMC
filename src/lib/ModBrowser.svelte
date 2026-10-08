@@ -105,6 +105,7 @@
     untrack(() => {
       picked = new Set();
       selected = null;
+      openId = "";
       hits = [];
       total = 0;
       // A Modrinth slug means nothing to CurseForge and the other way round.
@@ -226,19 +227,24 @@
     }
   }
 
-  async function open(hit: ModHit) {
+  /** The project the sheet shows or is loading; a second click on it is a no-op. */
+  let openId = "";
+
+  /** Show a project; `reload` re-fetches the one already open. */
+  async function open(project: string, reload = false) {
+    if (project === openId && !reload) return;
+    openId = project;
     selected = null;
     versions = [];
     try {
-      selected = await api.modProject(hit.project_id, source);
-      versions = await api.modVersions(
-        hit.project_id,
-        instance.mc_version,
-        kind,
-        instance.loader,
-        source
-      );
+      const sheet = await api.modProject(project, source);
+      const builds = await api.modVersions(project, instance.mc_version, kind, instance.loader, source);
+      if (openId !== project) return; // another row was opened meanwhile
+      selected = sheet;
+      versions = builds;
     } catch (e) {
+      // Forget it, so clicking the row again retries.
+      if (openId === project) openId = "";
       notify(errorMessage(e), "error");
     }
   }
@@ -371,7 +377,7 @@
           {/if}
           <button
             class="ghost row"
-            onclick={() => open(hit)}
+            onclick={() => open(hit.project_id)}
             ondblclick={() =>
               !installedIds.has(hit.project_id) && tick(hit.project_id, !picked.has(hit.project_id))}
           >
@@ -436,6 +442,10 @@
           </div>
 
           <div class="links">
+            <button class="ghost" onclick={() => open(selected!.id, true)} title="Load this page again">
+              <Icon name="refresh" size={12} />
+              Reload
+            </button>
             <button
               class="ghost"
               onclick={() =>
@@ -689,6 +699,9 @@
   }
 
   .links button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 12px;
     padding: 3px 9px;
   }

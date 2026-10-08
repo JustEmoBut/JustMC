@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api, errorMessage, type ModHit, type ModProject, type ModVersion } from "./api";
   import { SORTS, count, label } from "./format";
+  import Icon from "./Icon.svelte";
   import ProjectSheet from "./ProjectSheet.svelte";
   import { task } from "./task.svelte";
   import { notify } from "./toast.svelte";
@@ -67,13 +68,24 @@
     searchPacks(first);
   });
 
-  async function openPack(hit: ModHit) {
+  /** The pack the sheet shows or is loading; a second click on it is a no-op. */
+  let openId = "";
+
+  /** Show a pack; `reload` re-fetches the one already open. */
+  async function openPack(project: string, reload = false) {
+    if (project === openId && !reload) return;
+    openId = project;
     pack = null;
     packBuilds = [];
     try {
-      pack = await api.modProject(hit.project_id, "modrinth");
-      packBuilds = await api.packVersions(hit.project_id);
+      const sheet = await api.modProject(project, "modrinth");
+      const builds = await api.packVersions(project);
+      if (openId !== project) return; // another row was opened meanwhile
+      pack = sheet;
+      packBuilds = builds;
     } catch (e) {
+      // Forget it, so clicking the row again retries.
+      if (openId === project) openId = "";
       notify(errorMessage(e), "error");
     }
   }
@@ -122,7 +134,7 @@
     <ul class="results">
       {#each packHits as hit (hit.project_id)}
         <li class:current={pack?.id === hit.project_id}>
-          <button class="row" onclick={() => openPack(hit)}>
+          <button class="row" onclick={() => openPack(hit.project_id)}>
             {#if hit.icon_url}
               <img src={hit.icon_url} alt="" width="34" height="34" />
             {:else}
@@ -180,6 +192,10 @@
               onclick={() => api.openUrl(`https://modrinth.com/modpack/${pack!.slug}`)}
             >
               Modrinth page
+            </button>
+            <button class="ghost reload" onclick={() => openPack(pack!.id, true)} title="Load this page again">
+              <Icon name="refresh" size={12} />
+              Reload
             </button>
           </div>
         </ProjectSheet>
@@ -318,4 +334,9 @@
     width: auto;
   }
 
+  .reload {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
 </style>
