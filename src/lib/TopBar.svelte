@@ -2,6 +2,7 @@
   import type { Account } from "./api";
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
+  import { askInstall, checkUpdate, updater } from "./updater.svelte";
 
   let {
     search = $bindable(),
@@ -42,6 +43,18 @@
     <Icon name="gear" size={14} />
     Settings
   </button>
+
+  {#if updater.update}
+    <button class="primary tool" onclick={askInstall} disabled={updater.busy} title="Install and restart">
+      <Icon name="refresh" size={14} />
+      {updater.busy ? "Installing…" : `Update to ${updater.update.version}`}
+    </button>
+  {:else}
+    <button class="ghost tool" onclick={() => checkUpdate()} disabled={updater.busy}>
+      <Icon name="refresh" size={14} />
+      {updater.busy ? "Checking…" : "Check for Updates"}
+    </button>
+  {/if}
 
   <span class="spacer"></span>
 

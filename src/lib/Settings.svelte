@@ -3,6 +3,7 @@
   import { api, errorMessage, type JavaInstall, type Settings } from "./api";
   import Modal from "./Modal.svelte";
   import { notify } from "./toast.svelte";
+  import { askInstall, checkUpdate, updater } from "./updater.svelte";
 
   let {
     settings,
@@ -22,30 +23,8 @@
   let draft = $state<Settings>(untrack(() => ({ ...settings })));
   let javas = $state<JavaInstall[]>([]);
   let ramMb = $state<number | null>(null);
-  /** The newer release on offer: undefined until asked, null for "up to date". */
-  let update = $state<{ version: string; notes: string | null } | null | undefined>(undefined);
-  let updating = $state(false);
-
-  async function checkUpdate() {
-    updating = true;
-    try {
-      update = await api.checkLauncherUpdate();
-    } catch (e) {
-      notify(errorMessage(e), "error");
-    }
-    updating = false;
-  }
-
-  async function installUpdate() {
-    updating = true;
-    try {
-      // Restarts the app on success, so nothing after this runs then.
-      await api.installLauncherUpdate();
-    } catch (e) {
-      notify(errorMessage(e), "error");
-      updating = false;
-    }
-  }
+  const update = $derived(updater.update);
+  const updating = $derived(updater.busy);
 
   const memoryMax = $derived(Math.min(16384, ramMb ?? 16384));
 
@@ -137,11 +116,11 @@
         {update ? `JustLauncher ${update.version} is available.` : update === null ? "This is the newest release." : "Not checked yet."}
       </span>
       {#if update}
-        <button class="primary" onclick={installUpdate} disabled={updating}>
+        <button class="primary" onclick={askInstall} disabled={updating}>
           {updating ? "Installing…" : "Install and restart"}
         </button>
       {:else}
-        <button onclick={checkUpdate} disabled={updating}>{updating ? "Checking…" : "Check now"}</button>
+        <button onclick={() => checkUpdate()} disabled={updating}>{updating ? "Checking…" : "Check now"}</button>
       {/if}
     </div>
     {#if update?.notes}

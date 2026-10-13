@@ -28,6 +28,7 @@
   import Toasts from "./lib/Toasts.svelte";
   import { notify } from "./lib/toast.svelte";
   import TopBar from "./lib/TopBar.svelte";
+  import { checkUpdate, installUpdate, updater } from "./lib/updater.svelte";
 
   let instances = $state<Instance[]>([]);
   let accounts = $state<Account[]>([]);
@@ -85,6 +86,11 @@
     if (visible.length && !visible.some((i) => i.id === selectedId)) {
       selectedId = visible[0].id;
     }
+  });
+
+  // Every start asks once; a found release shows up as a button in the top bar.
+  $effect(() => {
+    checkUpdate(true);
   });
 
   async function refreshInstances() {
@@ -402,6 +408,20 @@
     {#snippet footer()}
       <button onclick={() => (deleting = null)}>Cancel</button>
       <button class="danger" onclick={confirmDelete}>Delete</button>
+    {/snippet}
+  </Modal>
+{/if}
+
+{#if updater.confirming && updater.update}
+  <Modal title="Update JustLauncher" width="400px" onclose={() => (updater.confirming = false)}>
+    <p>
+      Install JustLauncher {updater.update.version}? The launcher restarts once it is installed.
+      {#if Object.keys(busy).length}A game or install is running; finish it first.{/if}
+    </p>
+    {#if updater.update.notes}<p class="faint">{updater.update.notes}</p>{/if}
+    {#snippet footer()}
+      <button onclick={() => (updater.confirming = false)}>Cancel</button>
+      <button class="primary" onclick={installUpdate}>Install and restart</button>
     {/snippet}
   </Modal>
 {/if}
