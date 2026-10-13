@@ -414,6 +414,157 @@ pub(crate) async fn delete_in(dir: &std::path::Path, file: &str) -> Result<()> {
     Ok(())
 }
 
+/// What `fabric.mod.json` says a jar is and needs: every id it answers to
+/// (its own plus `provides`) and the ids it depends on.
+struct ModIds {
+    ids: Vec<String>,
+    depends: Vec<String>,
+}
+
+fn read_mod_ids(path: &std::path::Path) -> Option<ModIds> {
+    use std::io::Read;
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(path).ok()?).ok()?;
+    for name in ["META-INF/neoforge.mods.toml", "META-INF/mods.toml"] {
+        if let Ok(mut entry) = zip.by_name(name) {
+            let mut text = String::new();
+            entry.read_to_string(&mut text).ok()?;
+            return Some(forge_mod_ids(&text));
+        }
+    }
+    let json: serde_json::Value = serde_json::from_reader(zip.by_name("fabric.mod.json").ok()?).ok()?;
+    let strings = |v: Option<&serde_json::Value>| -> Vec<String> {
+        v.and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect())
+            .unwrap_or_default()
+    };
+    let mut ids = strings(json.get("provides"));
+    ids.push(json.get("id")?.as_str()?.to_string());
+    let depends = json
+        .get("depends")
+        .and_then(|d| d.as_object())
+        .map(|d| d.keys().cloned().collect())
+        .unwrap_or_default();
+    Some(ModIds { ids, depends })
+}
+
+/// `[[mods]]` ids and required `[[dependencies.*]]` ids out of a Forge or
+/// NeoForge `mods.toml`. A line reader rather than a TOML crate: only flat
+/// `key = "value"` lines inside those two array tables matter. Forge marks a
+/// required dependency `mandatory = true`; NeoForge says `type = "required"`
+/// and treats a missing `type` as required.
+fn forge_mod_ids(text: &str) -> ModIds {
+    #[derive(PartialEq)]
+    enum Table {
+        Mod,
+        Dependency,
+        Other,
+    }
+    let mut out = ModIds { ids: Vec::new(), depends: Vec::new() };
+    let mut table = Table::Other;
+    // The dependency block being read: its modId, and whether it is required.
+    let mut dep: Option<(Option<String>, bool)> = None;
+    let flush = |dep: &mut Option<(Option<String>, bool)>, out: &mut ModIds| {
+        if let Some((Some(id), true)) = dep.take() {
+            out.depends.push(id);
+        }
+    };
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or_default().trim();
+        if line.starts_with('[') {
+            flush(&mut dep, &mut out);
+            table = if line == "[[mods]]" {
+                Table::Mod
+            } else if line.starts_with("[[dependencies.") {
+                dep = Some((None, true));
+                Table::Dependency
+            } else {
+                Table::Other
+            };
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else { continue };
+        let value = value.trim().trim_matches(['"', '\'']);
+        match (&table, key.trim()) {
+            (Table::Mod, "modId") => out.ids.push(value.to_string()),
+            (Table::Dependency, "modId") => {
+                if let Some(d) = dep.as_mut() {
+                    d.0 = Some(value.to_string());
+                }
+            }
+            (Table::Dependency, "mandatory") => {
+                if let Some(d) = dep.as_mut() {
+                    d.1 = value == "true";
+                }
+            }
+            (Table::Dependency, "type") => {
+                if let Some(d) = dep.as_mut() {
+                    d.1 = value.eq_ignore_ascii_case("required");
+                }
+            }
+            _ => {}
+        }
+    }
+    flush(&mut dep, &mut out);
+    out
+}
+
+/// Not jars in the folder, so never candidates for removal.
+const BUILT_IN: [&str; 5] = ["minecraft", "java", "fabricloader", "forge", "neoforge"];
+
+/// Delete a mod, then each jar it depended on that no remaining mod depends
+/// on. Read from the jars' own metadata, so it needs no record and also works
+/// for a folder the user filled by hand -- at the price that a library the
+/// user installed on purpose goes too once nothing else needs it. Reads
+/// `fabric.mod.json` (Fabric, Quilt) and `mods.toml` (Forge, NeoForge); a jar
+/// with neither is neither a candidate nor a needer.
+pub async fn delete_with_dependencies(id: &str, file: &str) -> Result<()> {
+    let dir = folder(id, Kind::Mods).await?;
+    let path = dir.join(checked_name(file)?);
+    let removed = tokio::task::spawn_blocking(move || read_mod_ids(&path))
+        .await
+        .map_err(|e| Error::msg(e.to_string()))?;
+    delete_in(&dir, file).await?;
+    let Some(removed) = removed else { return Ok(()) };
+
+    let scan = dir.clone();
+    let victims = tokio::task::spawn_blocking(move || {
+        let mut installed: Vec<(String, ModIds)> = std::fs::read_dir(&scan)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let ids = name.trim_end_matches(DISABLED).ends_with(".jar").then(|| read_mod_ids(&e.path()))??;
+                Some((name, ids))
+            })
+            .collect();
+        let mut victims = Vec::new();
+        let mut candidates = removed.depends;
+        while let Some(wanted) = candidates.pop() {
+            if BUILT_IN.contains(&wanted.as_str()) {
+                continue;
+            }
+            let Some(at) = installed.iter().position(|(_, m)| m.ids.contains(&wanted)) else { continue };
+            let needed = installed
+                .iter()
+                .enumerate()
+                .any(|(i, (_, m))| i != at && m.depends.iter().any(|d| installed[at].1.ids.contains(d)));
+            if !needed {
+                let (name, gone) = installed.swap_remove(at);
+                candidates.extend(gone.depends);
+                victims.push(name);
+            }
+        }
+        victims
+    })
+    .await
+    .map_err(|e| Error::msg(e.to_string()))?;
+    for victim in victims {
+        delete_in(&dir, &victim).await?;
+    }
+    Ok(())
+}
+
 /// Fetch one file into the instance's folder for `kind`.
 pub async fn fetch(
     app: &AppHandle,
@@ -608,6 +759,29 @@ mod tests {
         assert_eq!(Kind::Mods.loaders(Loader::Fabric), ["fabric"]);
         assert!(Kind::Mods.installs_dependencies());
         assert!(!Kind::Shaderpacks.installs_dependencies());
+    }
+
+    #[test]
+    fn mods_toml_yields_ids_and_only_required_dependencies() {
+        let forge = super::forge_mod_ids(
+            r#"modLoader="javafml" # comment
+[[mods]]
+modId="create"
+[[dependencies.create]]
+    mandatory=true
+    modId="flywheel"
+[[dependencies.create]]
+    modId='jei'
+    mandatory=false
+"#,
+        );
+        assert_eq!(forge.ids, ["create"]);
+        assert_eq!(forge.depends, ["flywheel"]);
+        // NeoForge: `type` decides, and a block without one is required.
+        let neo = super::forge_mod_ids(
+            "[[mods]]\nmodId=\"a\"\n[[dependencies.a]]\nmodId=\"b\"\ntype=\"optional\"\n[[dependencies.a]]\nmodId=\"c\"\n",
+        );
+        assert_eq!(neo.depends, ["c"]);
     }
 
     #[test]
