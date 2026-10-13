@@ -247,17 +247,6 @@ Two things worth knowing before touching it:
   `dependencies[]` breadth-first, filtered to `required`, with a `seen` set
   against diamonds. Missing Fabric API is the single most common reason a
   freshly installed mod crashes the game, so this is not optional polish.
-- **Deleting a mod takes its now-unneeded dependencies with it.**
-  `delete_with_dependencies` reads each jar's own metadata — `fabric.mod.json`
-  (`id`, `provides`, `depends`) or Forge/NeoForge `META-INF/(neoforge.)mods.toml`
-  (`[[mods]]` ids; `[[dependencies.*]]` that are `mandatory = true` or
-  `type = "required"`, a missing `type` counting as required) — and removes a
-  dependency only when no remaining jar needs it, cascading down the chain.
-  No record of what was installed as a dependency, so it works on a folder
-  filled by hand; the accepted cost is that a library the user chose on
-  purpose goes too once its last dependent is deleted. `mods.toml` is read
-  line by line rather than with a TOML crate; inline tables are missed, which
-  leaves a dependency behind rather than deleting a wrong one.
 
 Project descriptions are author-written markdown, so they are rendered through
 `src/lib/markdown.ts` -- `marked` parses, DOMPurify decides what survives, and

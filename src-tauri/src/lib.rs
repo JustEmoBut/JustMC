@@ -430,11 +430,7 @@ async fn set_mod_enabled(
 
 #[tauri::command]
 async fn delete_mod(id: String, kind: mods::Kind, file: String) -> Result<()> {
-    if kind.installs_dependencies() {
-        mods::delete_with_dependencies(&id, &file).await
-    } else {
-        mods::delete(&id, kind, &file).await
-    }
+    mods::delete(&id, kind, &file).await
 }
 
 #[tauri::command]
