@@ -528,6 +528,14 @@
 
   .filters select {
     width: auto;
+    /* A select is as wide as its longest option, and CurseForge's nested
+       category names would otherwise crowd out the search box. */
+    max-width: 180px;
+  }
+
+  .filters .check {
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .bulk {
