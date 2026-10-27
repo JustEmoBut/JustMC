@@ -18,9 +18,14 @@ const CONFIG_NAME: &str = "instance.json";
 
 /// Directories inside an instance that are never worth archiving.
 fn is_skipped(relative: &Path) -> bool {
-    let first = relative.components().next();
-    // logs/ holds the unredacted game log, which contains the session token.
-    matches!(first, Some(c) if c.as_os_str() == "natives" || c.as_os_str() == "logs")
+    let mut parts = relative.components().map(|c| c.as_os_str());
+    // logs/ holds the unredacted launcher log, and the game's own
+    // .minecraft/logs can carry the session token too.
+    match parts.next() {
+        Some(c) if c == "natives" || c == "logs" => true,
+        Some(c) if c == ".minecraft" => parts.next().is_some_and(|c| c == "logs"),
+        _ => false,
+    }
 }
 
 /// Collect every file under `root`, as (absolute path, path relative to root).
@@ -30,7 +35,10 @@ pub(crate) fn collect(root: &Path) -> Result<Vec<(PathBuf, PathBuf)>> {
 
     while let Some(dir) = stack.pop() {
         for entry in std::fs::read_dir(&dir)? {
-            let path = entry?.path();
+            let entry = entry?;
+            // Not followed: a symlink or junction back up the tree would loop forever.
+            let is_dir = entry.file_type()?.is_dir();
+            let path = entry.path();
             let relative = path
                 .strip_prefix(root)
                 .map_err(|_| Error::msg("path escaped the instance directory"))?
@@ -39,7 +47,7 @@ pub(crate) fn collect(root: &Path) -> Result<Vec<(PathBuf, PathBuf)>> {
             if is_skipped(&relative) {
                 continue;
             }
-            if path.is_dir() {
+            if is_dir {
                 stack.push(path);
             } else {
                 // A crashed download leaves these behind; they are not content.
@@ -171,7 +179,9 @@ pub fn import(archive: &Path) -> Result<Instance> {
         // cannot write outside the new instance directory.
         let Some(name) = entry.enclosed_name() else { continue };
         let Ok(relative) = name.strip_prefix(&root) else { continue };
-        if entry.is_dir() || relative.as_os_str().is_empty() {
+        // The config is written last with the new id; extracting the archive's
+        // copy would leave an old-id instance behind if this loop failed.
+        if entry.is_dir() || relative.as_os_str().is_empty() || relative == Path::new(CONFIG_NAME) {
             continue;
         }
 

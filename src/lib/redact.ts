@@ -14,6 +14,9 @@ const RULES: [RegExp, string][] = [
   [/"access_token"\s*:\s*"[^"]*"/gi, '"access_token": "<REDACTED>"'],
   [/"refresh_token"\s*:\s*"[^"]*"/gi, '"refresh_token": "<REDACTED>"'],
   [/"device_code"\s*:\s*"[^"]*"/gi, '"device_code": "<REDACTED>"'],
+  // The launch header carries the full command line: account name and UUID.
+  [/(--username\s+)\S+/gi, "$1<USER>"],
+  [/(--uuid\s+)\S+/gi, "$1<UUID>"],
   // Home directories carry the user's real name on most machines.
   [/([A-Za-z]:\\Users\\)[^\\/\s]+/g, "$1<USER>"],
   [/([A-Za-z]:\/Users\/)[^\\/\s]+/g, "$1<USER>"],

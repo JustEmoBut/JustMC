@@ -425,7 +425,11 @@ fn unpack_installer(installer: &Path, data_dir: &Path) -> Result<()> {
         if let Some(parent) = out.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::io::copy(&mut entry, &mut std::fs::File::create(&out)?)?;
+        // Through a temp file, so a cut copy is not skipped as done next time.
+        let mut tmp = out.as_os_str().to_owned();
+        tmp.push(".part");
+        std::io::copy(&mut entry, &mut std::fs::File::create(&tmp)?)?;
+        std::fs::rename(&tmp, &out)?;
     }
     Ok(())
 }

@@ -12,6 +12,7 @@ test("removes the session token Minecraft prints at startup", () => {
 
 test("removes tokens passed as arguments or printed as json", () => {
   assert.equal(redact("--accessToken abc.def"), "--accessToken <REDACTED>");
+  assert.equal(redact("--username Notch --uuid 069a79f4"), "--username <USER> --uuid <UUID>");
   assert.equal(redact('"access_token" : "abc"'), '"access_token": "<REDACTED>"');
   assert.equal(redact('"refresh_token":"abc"'), '"refresh_token": "<REDACTED>"');
   assert.equal(redact('"device_code" : "ABCD"'), '"device_code": "<REDACTED>"');

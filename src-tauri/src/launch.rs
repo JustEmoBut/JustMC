@@ -117,7 +117,7 @@ pub fn stop(id: &str) -> bool {
 #[derive(Serialize, Clone)]
 pub struct LogLine {
     pub instance: String,
-    pub line: String,
+    pub lines: Vec<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -219,6 +219,31 @@ fn expand(args: &[Arg], vars: &HashMap<&str, String>) -> Vec<String> {
     out
 }
 
+/// Windows cuts a command line at 32,767 characters, and a large modpack's
+/// classpath alone passes that. Left with room for the java path itself.
+const MAX_COMMAND_LINE: usize = 30_000;
+
+/// The arguments as handed to the JVM: inline normally, or through an
+/// `@argfile` (Java 9+) when Windows would truncate them. The file lives in
+/// `natives/`, which is rebuilt per install and never exported, because it
+/// holds the access token just as `logs/latest.log` does.
+fn spawn_args(args: &[String], java_major: u32, instance: &Instance) -> Result<Vec<String>> {
+    let length: usize = args.iter().map(|a| a.len() + 3).sum();
+    if !cfg!(windows) || java_major < 9 || length <= MAX_COMMAND_LINE {
+        return Ok(args.to_vec());
+    }
+    let path = instance.natives_dir().join("launch.args");
+    let body: Vec<String> = args.iter().map(|a| argfile_quote(a)).collect();
+    std::fs::write(&path, body.join("\n"))?;
+    Ok(vec![format!("@{}", path.display())])
+}
+
+/// Inside quotes an argfile treats backslash as an escape, so Windows paths
+/// need theirs doubled.
+fn argfile_quote(arg: &str) -> String {
+    format!("\"{}\"", arg.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
 fn classpath_string(jars: &[std::path::PathBuf]) -> String {
     let sep = if cfg!(windows) { ";" } else { ":" };
     jars.iter()
@@ -301,7 +326,8 @@ pub fn build_command(
 
     let mut cmd = vec![
         format!("-Xmx{}M", instance.memory_mb),
-        format!("-Xms{}M", (instance.memory_mb / 2).max(512)),
+        // Never above -Xmx, or the JVM refuses to start.
+        format!("-Xms{}M", (instance.memory_mb / 2).max(512).min(instance.memory_mb)),
     ];
     cmd.extend(
         instance
@@ -451,20 +477,30 @@ async fn pump_log<R>(
     let mut reader = BufReader::new(reader);
     let mut buf = Vec::new();
     loop {
-        buf.clear();
-        match reader.read_until(b'\n', &mut buf).await {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {}
+        // Everything already buffered goes out as one event: a modded start
+        // prints thousands of lines a second, and one event per line queued
+        // up in the webview until the log trailed the game -- and kept
+        // scrolling after it exited.
+        let mut lines = Vec::new();
+        loop {
+            buf.clear();
+            match reader.read_until(b'\n', &mut buf).await {
+                Ok(0) | Err(_) => break,
+                Ok(_) => lines.push(decode_line(&buf)),
+            }
+            if !reader.buffer().contains(&b'\n') {
+                break;
+            }
         }
-        let line = decode_line(&buf);
+        if lines.is_empty() {
+            break;
+        }
         // Unredacted: this file stays on the user's disk. Anything leaving the
         // app goes through redact.ts instead.
-        let mut file = file.lock().await;
-        let _ = file.write_all(line.as_bytes()).await;
-        let _ = file.write_all(b"
-").await;
-        drop(file);
-        let _ = app.emit("game-log", LogLine { instance: id.clone(), line });
+        let mut text = lines.join("\n");
+        text.push('\n');
+        let _ = file.lock().await.write_all(text.as_bytes()).await;
+        let _ = app.emit("game-log", LogLine { instance: id.clone(), lines });
     }
 }
 
@@ -562,9 +598,10 @@ pub async fn launch(
         }
     }
 
+    let spawn_args = spawn_args(&args, required, &instance)?;
     let mut command = tokio::process::Command::new(&java_bin);
     command
-        .args(&args)
+        .args(&spawn_args)
         .current_dir(instance.game_dir())
         .envs(env)
         .stdout(Stdio::piped())
@@ -678,6 +715,12 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn argfile_quotes_paths_and_quotes() {
+        assert_eq!(argfile_quote(r"C:\a b\x.jar"), r#""C:\\a b\\x.jar""#);
+        assert_eq!(argfile_quote(r#"say "hi""#), r#""say \"hi\"""#);
+    }
 
     fn vars() -> HashMap<&'static str, String> {
         let mut v = HashMap::new();

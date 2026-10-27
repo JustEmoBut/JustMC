@@ -99,6 +99,9 @@ async fn update_instance(instance: Instance) -> Result<()> {
 
 #[tauri::command]
 async fn delete_instance(id: String) -> Result<()> {
+    if launch::is_running(&id) {
+        return Err(Error::msg("Stop the game before deleting this instance."));
+    }
     instance::delete(&id).await
 }
 
@@ -356,7 +359,12 @@ async fn clean_storage() -> Result<cleanup::Report> {
 #[tauri::command]
 async fn read_options(id: String) -> Result<String> {
     let path = instance::get(&id).await?.game_dir().join("options.txt");
-    Ok(tokio::fs::read_to_string(path).await.unwrap_or_default())
+    match tokio::fs::read_to_string(path).await {
+        Ok(text) => Ok(text),
+        // Only a missing file is empty; a locked one shown blank would be saved blank.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// The game rewrites this file wholesale when it exits, so the UI refuses
@@ -793,7 +801,7 @@ async fn save_settings(settings: settings::Settings) -> Result<()> {
 
 #[tauri::command]
 async fn list_accounts() -> Vec<Account> {
-    auth::load_all().await
+    auth::load_all().await.into_iter().map(Account::for_ui).collect()
 }
 
 #[tauri::command]
@@ -806,7 +814,7 @@ async fn begin_microsoft_login() -> Result<DeviceCode> {
 async fn complete_microsoft_login(code: DeviceCode) -> Result<Account> {
     let account = auth::poll_device_code(code).await?;
     store_account(account.clone()).await?;
-    Ok(account)
+    Ok(account.for_ui())
 }
 
 #[tauri::command]
@@ -887,7 +895,12 @@ async fn resolve_account(id: &str) -> Result<Account> {
         return Ok(account.clone());
     }
     let refreshed = auth::refresh(account).await?;
-    store_account(refreshed.clone()).await?;
+    // Removed while the refresh was in flight: do not bring it back.
+    let mut accounts = auth::load_all().await;
+    if let Some(slot) = accounts.iter_mut().find(|a| a.id == id) {
+        *slot = refreshed.clone();
+        auth::save_all(&accounts).await?;
+    }
     Ok(refreshed)
 }
 
@@ -900,8 +913,10 @@ fn system_memory_mb() -> Option<u32> {
 }
 
 #[tauri::command]
-fn list_java() -> Vec<java::JavaInstall> {
-    java::discover()
+async fn list_java() -> Vec<java::JavaInstall> {
+    // Each candidate is a `java -version` run; a sync command would hold the
+    // UI thread for all of them.
+    tokio::task::spawn_blocking(java::discover).await.unwrap_or_default()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

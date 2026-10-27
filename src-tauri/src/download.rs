@@ -26,9 +26,6 @@ const BACKOFF: Duration = Duration::from_secs(2);
 /// The longest a server's `Retry-After` is obeyed for. A server that asks for
 /// an hour is not going to be ready in this batch either way.
 const MAX_SERVER_WAIT: Duration = Duration::from_secs(60);
-/// The most a declared size may reserve up front. Above any file a launcher
-/// fetches (the client jar is ~40 MB), far below an allocation that aborts.
-const MAX_PREALLOC: u64 = 64 << 20;
 
 /// One file to fetch. `sha1` and `size` are optional because Fabric's Maven
 /// entries carry neither.
@@ -184,10 +181,23 @@ async fn stream_to_file(
     bytes_done: &AtomicU64,
     counted: &mut u64,
 ) -> Attempt {
+    use tokio::io::AsyncWriteExt;
+
+    // Write to a temp file then rename, so an interrupted download never leaves
+    // a truncated file that a later size check would happily accept. The suffix
+    // is appended rather than replacing the extension: a JRE manifest contains
+    // both `bin/java.exe` and `bin/java.dll`, which `with_extension` would
+    // collapse onto the same `bin/java.part` and race.
+    let mut tmp_name = job.path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(".part");
+    let tmp = job.path.with_file_name(tmp_name);
+    // Streamed to disk rather than held: sixteen parallel server jars held in
+    // memory is hundreds of megabytes for nothing.
+    let mut file = match tokio::fs::File::create(&tmp).await {
+        Ok(file) => file,
+        Err(e) => return Attempt::Stop(e.into()),
+    };
     let mut stream = response.bytes_stream();
-    // Capped: `size` can come from a pack's index, and an absurd one would
-    // abort the whole app on allocation. The Vec still grows past it.
-    let mut body = Vec::with_capacity(job.size.unwrap_or(0).min(MAX_PREALLOC) as usize);
     let mut hasher = Sha1::new();
     while let Some(chunk) = stream.next().await {
         let chunk = match chunk {
@@ -195,14 +205,21 @@ async fn stream_to_file(
             Err(e) => return Attempt::Again { error: e.into(), wait: None },
         };
         hasher.update(&chunk);
-        body.extend_from_slice(&chunk);
+        if let Err(e) = file.write_all(&chunk).await {
+            return Attempt::Stop(e.into());
+        }
         *counted += chunk.len() as u64;
         bytes_done.fetch_add(chunk.len() as u64, Ordering::Relaxed);
     }
+    if let Err(e) = file.flush().await {
+        return Attempt::Stop(e.into());
+    }
+    drop(file);
 
     if let Some(want) = &job.sha1 {
         let got = hex::encode(hasher.finalize());
         if !got.eq_ignore_ascii_case(want) {
+            let _ = tokio::fs::remove_file(&tmp).await;
             return Attempt::Again {
                 error: Error::msg(format!(
                     "checksum mismatch for {}: expected {want}, got {got}",
@@ -213,17 +230,6 @@ async fn stream_to_file(
         }
     }
 
-    // Write to a temp file then rename, so an interrupted download never leaves
-    // a truncated file that a later size check would happily accept. The suffix
-    // is appended rather than replacing the extension: a JRE manifest contains
-    // both `bin/java.exe` and `bin/java.dll`, which `with_extension` would
-    // collapse onto the same `bin/java.part` and race.
-    let mut tmp_name = job.path.file_name().unwrap_or_default().to_os_string();
-    tmp_name.push(".part");
-    let tmp = job.path.with_file_name(tmp_name);
-    if let Err(e) = tokio::fs::write(&tmp, &body).await {
-        return Attempt::Stop(e.into());
-    }
     if let Err(e) = tokio::fs::rename(&tmp, &job.path).await {
         return Attempt::Stop(e.into());
     }
@@ -252,12 +258,19 @@ async fn fetch_one(client: &reqwest::Client, job: &Job, bytes_done: &AtomicU64) 
 
 /// Download every job that is not already present, at most `PARALLEL` at once,
 /// reporting progress and transfer rate to the UI as it goes.
+/// One job per destination: two jobs writing the same `.part` interleave their
+/// bytes, and an asset index names one hash under many names.
+fn unique_paths(jobs: Vec<Job>) -> Vec<Job> {
+    let mut seen = std::collections::HashSet::new();
+    jobs.into_iter().filter(|j| seen.insert(j.path.clone())).collect()
+}
+
 pub async fn run(app: &AppHandle, stage: &str, jobs: Vec<Job>) -> Result<()> {
     let client = client()?;
 
     // Filter first so the totals describe the actual work, not the whole
     // version. On a reinstall this usually leaves the list empty.
-    let pending: Vec<Job> = futures::stream::iter(jobs)
+    let pending: Vec<Job> = futures::stream::iter(unique_paths(jobs))
         .map(|job| async move { (is_valid(&job).await, job) })
         .buffer_unordered(PARALLEL * 4)
         .filter_map(|(valid, job)| async move { (!valid).then_some(job) })
@@ -285,7 +298,8 @@ pub async fn run(app: &AppHandle, stage: &str, jobs: Vec<Job>) -> Result<()> {
                 let bytes = bytes_done.load(Ordering::Relaxed);
                 let elapsed = last_at.elapsed().as_secs_f64();
                 if elapsed > 0.0 {
-                    let instant = (bytes - last_bytes) as f64 / elapsed;
+                    // A retried file takes its bytes back, so this can go down.
+                    let instant = bytes.saturating_sub(last_bytes) as f64 / elapsed;
                     // Exponential smoothing: raw per-tick rates swing wildly as
                     // individual files start and finish, which makes the number
                     // unreadable.
@@ -395,7 +409,7 @@ pub async fn json<T: serde::de::DeserializeOwned>(url: &str) -> Result<T> {
 pub async fn run_quiet(jobs: Vec<Job>) -> Result<()> {
     let client = client()?;
     let bytes_done = Arc::new(AtomicU64::new(0));
-    let pending: Vec<Job> = futures::stream::iter(jobs)
+    let pending: Vec<Job> = futures::stream::iter(unique_paths(jobs))
         .map(|job| async move { (is_valid(&job).await, job) })
         .buffer_unordered(PARALLEL * 4)
         .filter_map(|(valid, job)| async move { (!valid).then_some(job) })

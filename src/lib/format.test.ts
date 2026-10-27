@@ -6,6 +6,7 @@ test("count abbreviates thousands and millions", () => {
   assert.equal(count(999), "999");
   assert.equal(count(12_400), "12k");
   assert.equal(count(3_250_000), "3.3M");
+  assert.equal(count(999_999), "1.0M");
 });
 
 test("label turns a slug into words", () => {

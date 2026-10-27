@@ -159,9 +159,10 @@ fn json_array(values: &[&str]) -> String {
 /// Every release of a project for one Minecraft version, newest first.
 pub async fn versions(project: &str, mc_version: &str, loaders: &[&str]) -> Result<Vec<Version>> {
     let url = format!(
-        "{API}/project/{}/version?loaders={}&game_versions=%5B%22{mc_version}%22%5D",
+        "{API}/project/{}/version?loaders={}&game_versions=%5B%22{}%22%5D",
         urlencode(project),
-        json_array(loaders)
+        json_array(loaders),
+        urlencode(mc_version)
     );
     download::json(&url).await
 }

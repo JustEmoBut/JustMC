@@ -17,7 +17,8 @@ export function label(slug: string) {
 }
 
 export function count(n: number) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  // From 999,500 up, rounding to thousands would print "1000k".
+  if (n >= 999_500) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1000) return `${Math.round(n / 1000)}k`;
   return `${n}`;
 }

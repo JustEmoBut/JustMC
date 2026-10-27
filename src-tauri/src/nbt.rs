@@ -100,7 +100,12 @@ impl Tag {
 struct Reader<'a> {
     bytes: &'a [u8],
     at: usize,
+    depth: usize,
 }
+
+/// Far beyond anything the game writes; a crafted file nested deeper would
+/// overflow the stack, which aborts the process instead of erroring.
+const MAX_DEPTH: usize = 512;
 
 impl<'a> Reader<'a> {
     fn take(&mut self, n: usize) -> Result<&'a [u8]> {
@@ -124,9 +129,7 @@ impl<'a> Reader<'a> {
 
     fn string(&mut self) -> Result<String> {
         let len = self.u16()? as usize;
-        // Minecraft writes modified UTF-8; for the text these files hold it is
-        // plain UTF-8, and a lossy decode beats failing the whole file.
-        Ok(String::from_utf8_lossy(self.take(len)?).into_owned())
+        Ok(decode_mutf8(self.take(len)?))
     }
 
     /// The element count of a list or array, refused when negative or larger
@@ -144,6 +147,20 @@ impl<'a> Reader<'a> {
     }
 
     fn payload(&mut self, id: u8) -> Result<Tag> {
+        if matches!(id, LIST | COMPOUND) {
+            self.depth += 1;
+            if self.depth > MAX_DEPTH {
+                return Err(Error::msg("NBT: nested too deeply"));
+            }
+        }
+        let tag = self.payload_inner(id);
+        if matches!(id, LIST | COMPOUND) {
+            self.depth -= 1;
+        }
+        tag
+    }
+
+    fn payload_inner(&mut self, id: u8) -> Result<Tag> {
         Ok(match id {
             BYTE => Tag::Byte(self.u8()? as i8),
             SHORT => Tag::Short(self.u16()? as i16),
@@ -206,7 +223,7 @@ impl<'a> Reader<'a> {
 /// Parse a whole file, returning the root compound and the name it was stored
 /// under (`servers.dat` uses an empty one, but it is written back as found).
 pub fn read(bytes: &[u8]) -> Result<(String, Tag)> {
-    let mut reader = Reader { bytes, at: 0 };
+    let mut reader = Reader { bytes, at: 0, depth: 0 };
     let id = reader.u8()?;
     if id != COMPOUND {
         return Err(Error::msg("NBT: the root is not a compound"));
@@ -216,8 +233,52 @@ pub fn read(bytes: &[u8]) -> Result<(String, Tag)> {
     Ok((name, root))
 }
 
+/// Java's modified UTF-8: UTF-16 units each encoded as UTF-8, so an emoji is
+/// two 3-byte surrogates (invalid UTF-8) and NUL is `C0 80`. Malformed input
+/// falls back to a lossy plain-UTF-8 read rather than failing the file.
+fn decode_mutf8(bytes: &[u8]) -> String {
+    let mut units = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i] as u16;
+        let (unit, width) = match bytes[i] {
+            0x00..=0x7f => (b, 1),
+            0xc0..=0xdf if i + 1 < bytes.len() => {
+                ((b & 0x1f) << 6 | (bytes[i + 1] as u16 & 0x3f), 2)
+            }
+            0xe0..=0xef if i + 2 < bytes.len() => (
+                (b & 0x0f) << 12 | (bytes[i + 1] as u16 & 0x3f) << 6 | (bytes[i + 2] as u16 & 0x3f),
+                3,
+            ),
+            _ => return String::from_utf8_lossy(bytes).into_owned(),
+        };
+        units.push(unit);
+        i += width;
+    }
+    String::from_utf16_lossy(&units)
+}
+
+fn encode_mutf8(text: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len());
+    for unit in text.encode_utf16() {
+        match unit {
+            0x01..=0x7f => out.push(unit as u8),
+            0x00..=0x7ff => {
+                out.extend_from_slice(&[0xc0 | (unit >> 6) as u8, 0x80 | (unit & 0x3f) as u8])
+            }
+            _ => out.extend_from_slice(&[
+                0xe0 | (unit >> 12) as u8,
+                0x80 | ((unit >> 6) & 0x3f) as u8,
+                0x80 | (unit & 0x3f) as u8,
+            ]),
+        }
+    }
+    out
+}
+
 fn write_string(out: &mut Vec<u8>, text: &str) {
-    let bytes = text.as_bytes();
+    let encoded = encode_mutf8(text);
+    let bytes = encoded.as_slice();
     // u16 is the format's limit; a name this long is not a real one.
     let len = bytes.len().min(u16::MAX as usize);
     out.extend_from_slice(&(len as u16).to_be_bytes());
@@ -281,6 +342,16 @@ pub fn write(name: &str, root: &Tag) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn modified_utf8_round_trips_emoji_and_nul() {
+        let text = "🎮 My Server\0ç";
+        let bytes = encode_mutf8(text);
+        // Surrogates, not a 4-byte sequence, exactly as Java writes them.
+        assert_eq!(&bytes[..6], &[0xed, 0xa0, 0xbc, 0xed, 0xbe, 0xae]);
+        assert_eq!(decode_mutf8(&bytes), text);
+        assert_eq!(decode_mutf8("plain".as_bytes()), "plain");
+    }
 
     fn sample() -> Tag {
         Tag::Compound(vec![(

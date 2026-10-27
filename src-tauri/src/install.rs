@@ -135,7 +135,10 @@ fn write_named_assets(index: &mojang::AssetIndex, dest: &Path) -> Result<()> {
     for (name, object) in &index.objects {
         let relative = Path::new(name);
         // Names come from a downloaded index, so treat them as untrusted input.
-        if relative.is_absolute() || relative.components().any(|c| c.as_os_str() == "..") {
+        if relative.is_absolute()
+            || paths::has_prefix(relative)
+            || relative.components().any(|c| c.as_os_str() == "..")
+        {
             return Err(Error::msg(format!("unsafe asset name: {name}")));
         }
         let out = dest.join(relative);

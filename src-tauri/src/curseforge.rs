@@ -408,7 +408,7 @@ pub async fn search(
     }
     // Past the API's reach there is nothing more to ask for; say so by
     // reporting the total as what was already held.
-    if offset + PAGE_SIZE > MAX_REACH {
+    if offset.saturating_add(PAGE_SIZE) > MAX_REACH {
         return Ok(modrinth::SearchPage { hits: Vec::new(), total_hits: offset as u64 });
     }
     let page: Paged<Vec<Project>> = {
@@ -635,7 +635,7 @@ async fn fill(app: &AppHandle, inst: &Instance, manifest: &Manifest, archive: &P
     let archive = archive.to_path_buf();
     let dest = inst.game_dir();
     let prefix = format!("{}/", manifest.overrides.trim_end_matches('/'));
-    tokio::task::spawn_blocking(move || crate::mrpack::extract_overrides(&archive, &dest, &[prefix.as_str()]))
+    tokio::task::spawn_blocking(move || crate::mrpack::extract_overrides(&archive, &dest, &[prefix.as_str()], false))
         .await
         .map_err(|e| Error::msg(e.to_string()))??;
 

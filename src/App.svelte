@@ -13,7 +13,7 @@
   } from "./lib/api";
   import ContextMenu, { type MenuItem } from "./lib/ContextMenu.svelte";
   import ExportDialog from "./lib/ExportDialog.svelte";
-  import { appendLine, clearLog } from "./lib/gamelog.svelte";
+  import { appendLines, clearLog } from "./lib/gamelog.svelte";
   import Icon from "./lib/Icon.svelte";
   import { instanceMenu } from "./lib/instanceMenu";
   import InstancePanel from "./lib/InstancePanel.svelte";
@@ -122,7 +122,7 @@
       // One subscription for the whole app: whoever started the download owns
       // the label, the window renders whatever is running.
       listen<Progress>("install-progress", (e) => task.report(e.payload)),
-      listen<{ line: string }>("game-log", (e) => appendLine(e.payload.line)),
+      listen<{ lines: string[] }>("game-log", (e) => appendLines(e.payload.lines)),
       // A shortcut clicked while the launcher was already open.
       listen<string>("launch-request", (e) => launchById(e.payload)),
       listen<{ instance: string; code: number }>("game-exited", (e) => {

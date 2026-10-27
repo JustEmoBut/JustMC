@@ -254,12 +254,28 @@ pub async fn restore(id: &str, file: &str) -> Result<String> {
         return Err(Error::msg("That zip is not a world backup (no level.dat inside)."));
     }
 
-    let dest = saves(id).await?.join(checked_name(&root)?);
+    let saves = saves(id).await?;
+    let dest = saves.join(checked_name(&root)?);
+    // Unpacked beside the world first, so a failure part-way leaves the
+    // current world untouched instead of deleted.
+    let staging = saves.join(format!(".{root}.restore-tmp"));
+    if staging.exists() {
+        std::fs::remove_dir_all(&staging)?;
+    }
+    if let Err(e) = unpack(&mut zip, &staging) {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(e);
+    }
     // Replaced, not merged: a half-overwritten world is chunks from two saves.
     if dest.exists() {
         std::fs::remove_dir_all(&dest)?;
     }
-    let saves = saves(id).await?;
+    std::fs::rename(staging.join(&root), &dest)?;
+    std::fs::remove_dir_all(&staging)?;
+    Ok(root)
+}
+
+fn unpack(zip: &mut zip::ZipArchive<std::fs::File>, saves: &std::path::Path) -> Result<()> {
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i)?;
         let Some(name) = entry.enclosed_name() else { continue };
@@ -272,7 +288,7 @@ pub async fn restore(id: &str, file: &str) -> Result<String> {
         }
         std::io::copy(&mut entry, &mut std::fs::File::create(&out)?)?;
     }
-    Ok(root)
+    Ok(())
 }
 
 /// Delete a world, permanently. The UI asks first; this does not.

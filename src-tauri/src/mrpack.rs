@@ -67,7 +67,8 @@ fn safe_join(root: &Path, relative: &str) -> Result<PathBuf> {
         || relative.contains("..")
         || relative.starts_with('/')
         || relative.starts_with('\\')
-        || Path::new(relative).is_absolute();
+        || Path::new(relative).is_absolute()
+        || crate::paths::has_prefix(Path::new(relative));
     if bad {
         return Err(Error::msg(format!("Pack contains an unsafe path: {relative}")));
     }
@@ -114,7 +115,7 @@ pub async fn import(app: &AppHandle, archive: &Path) -> Result<Instance> {
 
     // From here on a failure leaves a half-built instance, so remove it rather
     // than leaving something that looks playable and is not.
-    let files = match fill(app, &inst, index, &path).await {
+    let files = match fill(app, &inst, index, &path, false).await {
         Ok(files) => files,
         Err(e) => {
             let _ = instance::delete(&inst.id).await;
@@ -213,7 +214,7 @@ async fn apply(
     .await
     .map_err(|e| Error::msg(e.to_string()))??;
     let (mc_version, loader, loader_version) = loader_of(&index.dependencies)?;
-    let files = fill(app, inst, index, archive).await?;
+    let files = fill(app, inst, index, archive, true).await?;
 
     let game_dir = inst.game_dir();
     for stale in stale_files(&old.files, &files) {
@@ -250,7 +251,13 @@ fn stale_files<'a>(old: &'a [String], new: &'a [String]) -> impl Iterator<Item =
 
 /// Extract the overrides and download everything the index lists. Returns the
 /// game-folder paths the index installed, which is what `PackSource` keeps.
-async fn fill(app: &AppHandle, inst: &Instance, index: Index, archive: &Path) -> Result<Vec<String>> {
+async fn fill(
+    app: &AppHandle,
+    inst: &Instance,
+    index: Index,
+    archive: &Path,
+    updating: bool,
+) -> Result<Vec<String>> {
     let game_dir = inst.game_dir();
 
     let mut jobs = Vec::new();
@@ -268,7 +275,10 @@ async fn fill(app: &AppHandle, inst: &Instance, index: Index, archive: &Path) ->
         jobs.push(Job {
             url: url.clone(),
             path: safe_join(&game_dir, &file.path)?,
-            sha1: file.hashes.get("sha1").cloned(),
+            // The format requires it; without it the bytes would land unchecked.
+            sha1: Some(file.hashes.get("sha1").cloned().ok_or_else(|| {
+                Error::msg(format!("Pack lists {} with no SHA-1.", file.path))
+            })?),
             size: file.file_size,
         });
         paths.push(file.path.replace('\\', "/"));
@@ -276,7 +286,7 @@ async fn fill(app: &AppHandle, inst: &Instance, index: Index, archive: &Path) ->
 
     let archive = archive.to_path_buf();
     let dest = game_dir.clone();
-    tokio::task::spawn_blocking(move || extract_overrides(&archive, &dest, &OVERRIDES))
+    tokio::task::spawn_blocking(move || extract_overrides(&archive, &dest, &OVERRIDES, updating))
         .await
         .map_err(|e| Error::msg(e.to_string()))??;
 
@@ -534,7 +544,15 @@ fn read_index(archive: &Path) -> Result<Index> {
 }
 
 /// Copy the pack's own config files into the game directory.
-pub(crate) fn extract_overrides(archive: &Path, game_dir: &Path, prefixes: &[&str]) -> Result<()> {
+/// `keep_own` leaves the player's files (worlds, options) alone, which an
+/// update must and a fresh install must not: a pack's default options.txt is
+/// wanted the first time.
+pub(crate) fn extract_overrides(
+    archive: &Path,
+    game_dir: &Path,
+    prefixes: &[&str],
+    keep_own: bool,
+) -> Result<()> {
     let mut zip = zip::ZipArchive::new(std::fs::File::open(archive)?)?;
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i)?;
@@ -545,7 +563,7 @@ pub(crate) fn extract_overrides(archive: &Path, game_dir: &Path, prefixes: &[&st
         let Some(relative) = prefixes.iter().find_map(|p| name.strip_prefix(p)) else {
             continue;
         };
-        if entry.is_dir() || relative.is_empty() {
+        if entry.is_dir() || relative.is_empty() || (keep_own && is_own(relative)) {
             continue;
         }
         let out = game_dir.join(relative);

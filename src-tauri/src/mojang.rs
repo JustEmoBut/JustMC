@@ -438,16 +438,17 @@ pub async fn asset_index(index: &AssetIndexRef) -> Result<AssetIndex> {
     let index_path = paths::assets()
         .join("indexes")
         .join(format!("{}.json", index.id));
-    let text = match tokio::fs::read_to_string(&index_path).await {
-        Ok(t) => t,
-        Err(_) => {
-            let t = reqwest::get(&index.url).await?.error_for_status()?.text().await?;
-            tokio::fs::create_dir_all(index_path.parent().unwrap()).await?;
-            tokio::fs::write(&index_path, &t).await?;
-            t
+    // A cache that will not parse (a write cut short) is refetched, not trusted.
+    if let Ok(text) = tokio::fs::read_to_string(&index_path).await {
+        if let Ok(parsed) = serde_json::from_str::<AssetIndex>(&text) {
+            return Ok(parsed);
         }
-    };
-    Ok(serde_json::from_str(&text)?)
+    }
+    let t = reqwest::get(&index.url).await?.error_for_status()?.text().await?;
+    let parsed: AssetIndex = serde_json::from_str(&t)?;
+    tokio::fs::create_dir_all(index_path.parent().unwrap()).await?;
+    paths::write_atomic(&index_path, t.as_bytes()).await?;
+    Ok(parsed)
 }
 
 #[cfg(test)]

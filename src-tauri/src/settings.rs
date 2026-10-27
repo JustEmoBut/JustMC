@@ -70,7 +70,7 @@ pub async fn load() -> Settings {
 
 pub async fn save(settings: &Settings) -> Result<()> {
     tokio::fs::create_dir_all(paths::root()).await?;
-    tokio::fs::write(paths::settings_file(), serde_json::to_vec_pretty(settings)?).await?;
+    paths::write_atomic(&paths::settings_file(), &serde_json::to_vec_pretty(settings)?).await?;
     Ok(())
 }
 

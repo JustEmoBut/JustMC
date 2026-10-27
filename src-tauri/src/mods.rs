@@ -137,7 +137,8 @@ pub(crate) fn checked_name(file: &str) -> Result<&str> {
     let bad = file.is_empty()
         || file.contains(['/', '\\'])
         || file.contains("..")
-        || std::path::Path::new(file).is_absolute();
+        || std::path::Path::new(file).is_absolute()
+        || crate::paths::has_prefix(std::path::Path::new(file));
     if bad {
         return Err(Error::msg("Invalid mod file name."));
     }
@@ -350,8 +351,10 @@ pub(crate) fn list_blocking(dir: &std::path::Path, kind: Kind) -> Result<Vec<Mod
                 dir: true,
             });
         }
-        let enabled = file.ends_with(extension);
-        if !enabled && !file.ends_with(&format!("{extension}{DISABLED}")) {
+        // The game does not care about case, so `Iris.JAR` is a mod too.
+        let lower = file.to_lowercase();
+        let enabled = lower.ends_with(extension);
+        if !enabled && !lower.ends_with(&format!("{extension}{DISABLED}")) {
             return None;
         }
         let meta = e.metadata().ok();

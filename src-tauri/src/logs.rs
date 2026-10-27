@@ -19,6 +19,9 @@ use std::path::PathBuf;
 /// the same reason: a long session writes tens of thousands of lines and
 /// rendering all of them is what makes launcher log views crawl.
 const MAX_LINES: usize = 2000;
+/// How much of a plain log's end is read: thousands of lines' worth, so a
+/// crash-looping game's half-gigabyte log is never loaded whole.
+const TAIL_BYTES: u64 = 8 << 20;
 
 #[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -91,17 +94,44 @@ pub async fn read(id: &str, source: Source, file: &str) -> Result<Vec<String>> {
     if !is_log(file, source) {
         return Err(Error::msg("Not a log file."));
     }
-    tail(file, &tokio::fs::read(&path).await?)
+    let bytes = if file.ends_with(".gz") {
+        // Compressed, so small; the decompressed text is what gets bounded.
+        tokio::fs::read(&path).await?
+    } else {
+        read_end(&path).await?
+    };
+    tail(file, &bytes)
+}
+
+async fn read_end(path: &std::path::Path) -> Result<Vec<u8>> {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    let mut f = tokio::fs::File::open(path).await?;
+    let len = f.metadata().await?.len();
+    f.seek(std::io::SeekFrom::Start(len.saturating_sub(TAIL_BYTES))).await?;
+    let mut out = Vec::new();
+    f.read_to_end(&mut out).await?;
+    Ok(out)
 }
 
 /// The last `MAX_LINES` lines of a log's bytes, gunzipping a rotated one. A
 /// log is whatever the game wrote, so invalid UTF-8 is shown, not an error.
 fn tail(file: &str, bytes: &[u8]) -> Result<Vec<String>> {
     let text = if file.ends_with(".gz") {
-        use std::io::Read;
-        let mut out = Vec::new();
-        flate2::read::GzDecoder::new(bytes).read_to_end(&mut out)?;
-        String::from_utf8_lossy(&out).into_owned()
+        // Line by line into a bounded window: a gzipped log can unpack to far
+        // more than its size.
+        use std::io::BufRead;
+        let mut reader = std::io::BufReader::new(flate2::read::GzDecoder::new(bytes));
+        let mut window = std::collections::VecDeque::with_capacity(MAX_LINES);
+        let mut line = Vec::new();
+        while reader.read_until(b'\n', &mut line)? > 0 {
+            if window.len() == MAX_LINES {
+                window.pop_front();
+            }
+            let text = String::from_utf8_lossy(&line);
+            window.push_back(text.trim_end_matches(['\n', '\r']).to_string());
+            line.clear();
+        }
+        return Ok(window.into());
     } else {
         String::from_utf8_lossy(bytes).into_owned()
     };

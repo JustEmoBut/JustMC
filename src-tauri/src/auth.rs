@@ -74,6 +74,14 @@ pub struct Account {
 }
 
 impl Account {
+    /// The account as the webview sees it: a refresh token is a login, and
+    /// nothing in the frontend uses either token.
+    pub fn for_ui(mut self) -> Self {
+        self.access_token.clear();
+        self.refresh_token.clear();
+        self
+    }
+
     pub fn is_expired(&self) -> bool {
         self.kind == AccountKind::Microsoft && now() >= self.expires_at
     }
@@ -198,9 +206,11 @@ pub async fn refresh(account: &Account) -> Result<Account> {
         ])
         .send()
         .await?;
-    if !resp.status().is_success() {
+    // Only a rejected grant means the login is gone; an outage is not.
+    if resp.status().is_client_error() {
         return Err(Error::msg("Session expired; please sign in again."));
     }
+    let resp = resp.error_for_status()?;
     finish_login(resp.json().await?).await
 }
 
@@ -495,7 +505,7 @@ pub async fn save_all(accounts: &[Account]) -> Result<()> {
 
     let path = paths::accounts_file();
     tokio::fs::create_dir_all(path.parent().unwrap()).await?;
-    tokio::fs::write(&path, serde_json::to_vec_pretty(&stored)?).await?;
+    paths::write_atomic(&path, &serde_json::to_vec_pretty(&stored)?).await?;
     Ok(())
 }
 

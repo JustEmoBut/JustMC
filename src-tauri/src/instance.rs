@@ -215,11 +215,7 @@ impl Instance {
 
     pub async fn save(&self) -> Result<()> {
         tokio::fs::create_dir_all(self.dir()).await?;
-        tokio::fs::write(
-            self.dir().join(CONFIG_NAME),
-            serde_json::to_vec_pretty(self)?,
-        )
-        .await?;
+        paths::write_atomic(&self.dir().join(CONFIG_NAME), &serde_json::to_vec_pretty(self)?).await?;
         Ok(())
     }
 }
@@ -305,8 +301,9 @@ pub async fn list() -> Vec<Instance> {
     while let Ok(Some(entry)) = entries.next_entry().await {
         let config = entry.path().join(CONFIG_NAME);
         if let Ok(text) = tokio::fs::read_to_string(&config).await {
-            if let Ok(instance) = serde_json::from_str::<Instance>(&text) {
-                out.push(instance);
+            match serde_json::from_str::<Instance>(&text) {
+                Ok(instance) => out.push(instance),
+                Err(e) => eprintln!("Skipping {}: {e}", config.display()),
             }
         }
     }

@@ -50,3 +50,27 @@ pub fn accounts_file() -> PathBuf {
 pub fn settings_file() -> PathBuf {
     root().join("settings.json")
 }
+
+/// True for a Windows drive-relative path like `C:evil.jar`: not absolute, yet
+/// `join` on it replaces the base entirely.
+pub fn has_prefix(path: &std::path::Path) -> bool {
+    path.components().any(|c| matches!(c, std::path::Component::Prefix(_)))
+}
+
+/// Write through a sibling temp file and rename, so a crash mid-write leaves
+/// the old file rather than half a JSON document.
+pub async fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    tokio::fs::write(&tmp, bytes).await?;
+    tokio::fs::rename(&tmp, path).await
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn drive_relative_paths_are_caught() {
+        assert_eq!(super::has_prefix(std::path::Path::new("C:evil.jar")), cfg!(windows));
+        assert!(!super::has_prefix(std::path::Path::new("mods/a.jar")));
+    }
+}
