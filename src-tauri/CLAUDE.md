@@ -165,8 +165,12 @@ and anything else is our own.
 - `mrpack.rs` is **Modrinth's**: an index of URLs with hashes plus `overrides/`
   folders. It downloads rather than unpacks, so every file becomes a
   `download::Job` and is SHA-1 verified like any library. The index is
-  attacker-controlled, so `safe_join` guards every path and plain-HTTP downloads
-  are refused. A pack names its loader with a key of its own
+  attacker-controlled, so `safe_join` guards every path (including Windows
+  drive-relative `C:x`, which `join` treats as a new root — `paths::has_prefix`),
+  a file without a SHA-1 is refused, and plain-HTTP downloads are refused.
+  Updating a pack skips the player's own files in `overrides/` (`is_own`:
+  worlds, options, server list); a fresh install takes them, since a pack's
+  default options are wanted the first time. A pack names its loader with a key of its own
   (`fabric-loader`, `quilt-loader`, `forge`, `neoforge`) and the more specific
   one wins when two are listed; `env.client == "unsupported"` marks a
   server-only file and is the only reason to skip one. A failure part-way
@@ -320,7 +324,9 @@ the shape `backup` writes (`<id>-<folder>-<unix>.zip`) — the file name is the
 only index there is, which is what keeps exports/ a folder the user can tidy
 by hand. `restore` then takes the folder out of the *zip's* entries instead,
 so a renamed backup still works, and it checks everything before it deletes
-anything: one root folder, holding a `level.dat`. The world is replaced rather
+anything: one root folder, holding a `level.dat`. It then unpacks into
+`saves/.<world>.restore-tmp` and only swaps that in once it is complete, so a
+full disk mid-restore leaves the old world rather than none. The world is replaced rather
 than merged into, because chunks from two saves in one folder is a corrupt
 world.
 
@@ -351,7 +357,10 @@ client writes keys this launcher has never heard of (`acceptTextures`, whatever
 a version adds next) and rebuilding the file from the fields we understand
 would drop them silently. Every read is bounds-checked and a declared length is
 refused when it runs past the file, because a corrupt `.dat` must be an error
-rather than a panic or a gigabyte allocation. `worlds.rs` reads `level.dat`
+rather than a panic or a gigabyte allocation. Nesting is capped at 512 (deeper
+would overflow the stack, which aborts), and strings are Java's modified UTF-8,
+decoded and re-encoded as such: an emoji is two surrogates there, which a plain
+UTF-8 read turned into replacement characters on the next save. `worlds.rs` reads `level.dat`
 through the same module, which is where its world names and `LastPlayed` come
 from.
 
@@ -393,7 +402,9 @@ truncated per launch), `.minecraft/logs` (the game's own, everything but
 check guard the join, exactly like the mods folder. The directory is the
 database here too: nothing is indexed.
 
-Reading tails the last 2000 lines, the same cap the live view applies, because
+Reading tails the last 2000 lines (from at most the file's last 8 MB, and a
+`.gz` through a bounded window, so a crash-looping game's huge log cannot take
+the launcher down too), the same cap the live view applies, because
 rendering a whole session is what makes launcher log views crawl. Old logs
 carry the session token just like the live one, so they are shown in the same
 panel and leave through the same `redact` chokepoint.
@@ -409,6 +420,10 @@ Everything fetched goes through `Job { url, path, sha1, size }`.
 - Temp files append `.part` rather than replacing the extension: a JRE manifest
   contains both `bin/java.exe` and `bin/java.dll`, which would otherwise
   collide.
+- Bodies stream straight to the `.part` file; nothing is held in memory, since
+  sixteen parallel server jars would be hundreds of megabytes.
+- Jobs are deduplicated by path before running: an asset index names one hash
+  under many names, and two jobs on one `.part` interleave their bytes.
 - A ticker task emits `install-progress` every 200 ms with a smoothed rate;
   never emit per file.
 
@@ -454,4 +469,10 @@ also means **a token found in the file wins on load**: it is the copy written
 last, and it is how a pre-keychain `accounts.json` migrates (read once,
 rewritten without them). Removing an account calls `auth::forget`, or the
 credential outlives the account it belonged to.
+
+**Tokens never cross into the webview.** Every command that returns an
+`Account` returns `Account::for_ui()`, with both tokens cleared; nothing in the
+frontend uses them, and a refresh token in renderer memory is a login one
+script injection away. A refresh writes back only into an account that still
+exists, so removing one mid-refresh does not resurrect it.
 

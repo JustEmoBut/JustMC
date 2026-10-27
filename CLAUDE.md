@@ -57,7 +57,7 @@ instance.json
   -> java::find            a matching local JVM, else jre::ensure downloads one
   -> launch::build_command placeholder substitution
   -> run_hook              the instance's pre-launch command, if it has one
-  -> spawn, pump stdout/stderr as `game-log` events and to logs/latest.log
+  -> spawn, pump stdout/stderr as batched `game-log` events and to logs/latest.log
   -> run_hook              its post-exit command, after the process ends
 ```
 
@@ -88,6 +88,16 @@ already 17+), 32-bit JVMs against `-Xmx` over 2048 MB, and `memory_mb` against
 `java::physical_memory_mb`. Unprobeable is not incompatible — only block on a
 positive answer.
 
+**A `game-log` event carries every line already buffered, not one line.** A
+modded start prints thousands of lines a second; one event per line queued up
+in the webview until the live log trailed the game and kept scrolling after it
+had exited.
+
+**Windows cuts a command line at 32,767 characters**, and a large modpack's
+classpath alone passes that. Over ~30k, with Java 9+, `spawn_args` hands the
+JVM an `@argfile` in `natives/` instead (never exported, since it holds the
+token). The `latest.log` header still shows the full line.
+
 **A version number is never a capability test.** Minecraft moved to a
 year-based scheme in 2026, so an instance can be on `26.2`, and a snapshot
 carries no minor version at all — "is the minor version at least 20" reads both
@@ -105,7 +115,9 @@ downloads a Forge installer to answer.
 
 ### Data layout
 
-The filesystem is the database — no index, no cache. A user can copy, delete or
+The filesystem is the database — no index, no cache. Every JSON the launcher
+owns (`instance.json`, `accounts.json`, `settings.json`) is written through
+`paths::write_atomic`, since a half-written one used to read as "nothing here". A user can copy, delete or
 back up an instance with a file manager, and `instance::list` just reads
 directories. See `paths.rs`.
 
