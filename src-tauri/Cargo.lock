@@ -2206,7 +2206,7 @@ dependencies = [
 
 [[package]]
 name = "justlauncher"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "dirs",
  "flate2",
