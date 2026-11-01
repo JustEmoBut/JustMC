@@ -22,8 +22,8 @@ Chromium is bundled.
 - Fabric, Quilt, Forge and NeoForge loaders, with the loader build pinnable
   when an instance is created and afterwards. Forge and NeoForge run their own
   installer's recipe to build the patched client jar, so no external installer
-  is involved; Forge older than 1.13 uses a different format and is refused
-  with a message
+  is involved. Forge before 1.13 (tested back to 1.7.10) uses its older
+  installer formats, which need no build step
 - Create, configure, delete instances; per-instance memory, Java and JVM args
 - Per-instance commands run before the game starts and after it exits, with
   the instance's folders in the environment; a failed one cancels the launch

@@ -68,8 +68,22 @@ An installer holds `version.json` (an ordinary `inheritsFrom` profile, so
 extra libraries, a `data` map, and `processors` — tool jars to run with a JVM),
 and sometimes a `maven/` tree of artifacts no repository serves.
 
-Both projects use the same format, `spec` 1. Forge before 1.13 used a different
-installer and is refused with a message rather than failing halfway through.
+Both projects use the same format, `spec` 1. Forge before 1.13 shipped two
+older ones, neither with processors, so its jar is unpacked rather than built:
+
+- **`spec` 0** (1.12.2 from 14.23.5.2851): the modern layout, with the Forge
+  jar ready-made under `maven/`.
+- **`install`/`versionInfo`** (up to 1.12.2-14.23.5.2847): one JSON that
+  `legacy_installer` rewrites into the modern pair. The universal jar sits at
+  the installer's root (`filePath`); the Forge library's own URL serves no
+  such jar and is dropped; and a library with no URL is Mojang's, fetched from
+  `libraries.minecraft.net` as the old launcher did by default.
+
+Both put Forge's `--tweakClass` in a flat `minecraftArguments`, which a child
+restates in full, so `mojang::merge` replaces the parent's rather than
+extending it. Verified on 1.7.10, 1.8.9, 1.12.2-2847 and 1.12.2-2860; 1.6.4 is
+offered but untested, and its FML fetches libraries at start-up from a host
+that no longer serves them.
 
 The work is split in two so the module never names `AppHandle`:
 
@@ -125,7 +139,7 @@ independent confirmation that both details are real rather than guessed.
 Two things it carries that this launcher does not need: a conflict matrix
 between loaders (an instance here has one `loader` field, so two cannot be
 installed at once) and a legacy FML libraries step for Forge older than 1.6,
-which is well below the 1.13 floor. Its fifth loader, LiteLoader, stopped at
+which is below anything Forge publishes an installer for. Its fifth loader, LiteLoader, stopped at
 1.12.2 in 2017 and is not worth a module.
 
 ## Sweeping the shared store (`cleanup.rs`)

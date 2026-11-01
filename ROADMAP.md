@@ -23,9 +23,9 @@ the code there is C++/Qt and gets rethought for this stack, not ported.
   `PC_LAUNCHER`, with `authentication/login_with_xbox` as the fallback until
   the new path is seen working against a real account.
 - **Forge and NeoForge.** `forge.rs` fetches an installer, unpacks its profile
-  and runs the processors that build the patched client jar. Modern format
-  only (`spec` 1: Forge 1.13+, every NeoForge); older Forge is refused with a
-  message. `.mrpack` imports of Forge packs work as a result.
+  and runs the processors that build the patched client jar. Forge before
+  1.13 ships older installers with no processors; its jar is unpacked instead
+  (verified back to 1.7.10). `.mrpack` imports of Forge packs work as a result.
 - **Quick Play.** A row in the Servers or Worlds panel launches straight into
   that server or save, by button or double click. Whether the version can be
   told is asked of its own metadata — 1.20+ declares the flags under
