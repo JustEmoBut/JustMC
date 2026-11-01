@@ -154,7 +154,7 @@ pub fn import(archive: &Path) -> Result<Instance> {
         .map_err(|e| Error::msg(format!("Cannot open {}: {e}", archive.display())))?;
     let mut zip = zip::ZipArchive::new(file)?;
 
-    let names: Vec<String> = zip.file_names().map(str::to_string).collect();
+    let names: Vec<String> = zip.file_names().map(|n| n.map(String::from)).collect::<std::result::Result<_, _>>()?;
     let root = archive_root(&names).ok_or_else(|| {
         Error::msg("That zip is not a JustLauncher instance (no instance.json inside).")
     })?;

@@ -206,7 +206,7 @@ async fn worlds_are_listed_backed_up_and_deleted() {
 
     let archive = justlauncher_lib::worlds::backup(&instance.id, "New World").await.unwrap();
     let mut zip = zip::ZipArchive::new(std::fs::File::open(&archive).unwrap()).unwrap();
-    let names: Vec<String> = (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().to_owned()).collect();
+    let names: Vec<String> = (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().unwrap().into_owned()).collect();
     assert!(names.contains(&"New World/level.dat".to_string()), "{names:?}");
     assert!(names.contains(&"New World/region/r.0.0.mca".to_string()), "{names:?}");
 
@@ -312,7 +312,7 @@ async fn an_mrpack_export_separates_the_pack_from_the_player() {
     assert!(archive.to_string_lossy().ends_with("source.mrpack"), "{}", archive.display());
 
     let mut zip = zip::ZipArchive::new(std::fs::File::open(&archive).unwrap()).unwrap();
-    let names: Vec<String> = (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().to_owned()).collect();
+    let names: Vec<String> = (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().unwrap().into_owned()).collect();
 
     assert!(names.contains(&"modrinth.index.json".to_string()), "{names:?}");
     assert!(names.contains(&"overrides/config/sodium.toml".to_string()), "{names:?}");
