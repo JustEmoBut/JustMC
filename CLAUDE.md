@@ -233,8 +233,10 @@ different OS credential stores), `windows-sys` (already in the tree;
 `GlobalMemoryStatusEx`, and COM's `CoCreateInstance` for the ShellLink object
 `shortcut.rs` writes `.lnk` files with — the two interface vtables it needs are
 declared there by hand, since `windows-sys` carries none),
-`tauri-plugin-updater` (signed self-update; it brings a second `zip` major
-and `tar`) and `tauri-plugin-single-instance` (registered first; a second
+`tauri-plugin-updater` (signed self-update; its `zip` feature is off, since
+it pinned an old `zip` major with open advisories and only unpacks `.zip` and
+AppImage `.tar.gz` updates, which no release ships — the NSIS `.exe` and macOS
+paths do not need it) and `tauri-plugin-single-instance` (registered first; a second
 start hands its `--launch` over instead of becoming a second launcher that
 could run an instance twice). Skin uploads build their multipart body by hand
 rather than enabling reqwest's `multipart` feature. The frontend has no UI framework beyond
