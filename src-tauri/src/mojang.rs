@@ -375,6 +375,11 @@ pub fn merge(parent: VersionJson, child: VersionJson) -> VersionJson {
         args.jvm.extend(child_args.jvm);
         out.arguments = Some(args);
     }
+    // The legacy flat string is restated in full by a child (Forge 1.12.2's
+    // adds `--tweakClass`), never appended to.
+    if child.minecraft_arguments.is_some() {
+        out.minecraft_arguments = child.minecraft_arguments;
+    }
     if child.java_version.is_some() {
         out.java_version = child.java_version;
     }

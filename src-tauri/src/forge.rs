@@ -17,9 +17,11 @@
 //! - `maven/` — artifacts published nowhere else (Forge's `universal` and
 //!   `shim`), which have to be unpacked into the library store.
 //!
-//! Both projects use the same format (`spec` 1). Only the modern one is
-//! supported: Forge before 1.13 used a different installer entirely, and is
-//! refused with a message rather than failing halfway through.
+//! Both projects use the same format (`spec` 1). Forge before 1.13 shipped
+//! two older ones, neither with processors: `spec` 0 (1.12.2 from
+//! 14.23.5.2851) and the `install`/`versionInfo` one before it, which
+//! `legacy_installer` rewrites into the modern pair. Forge older than 1.6 had
+//! no installer at all and is not offered.
 //!
 //! Three details that are easy to get wrong, each verified against a real
 //! installer (Forge 1.21.1-52.1.16, NeoForge 21.1.248):
@@ -255,7 +257,7 @@ pub async fn profile(loader: Loader, mc: &str, version: &str) -> Result<VersionJ
 }
 
 /// Pull `install_profile.json` and the version profile it points at out of an
-/// installer jar, refusing anything that is not the modern format.
+/// installer jar, converting the legacy format on the way.
 fn read_installer(installer: &Path, _dir: &Path) -> Result<(String, String)> {
     let file = std::fs::File::open(installer)
         .map_err(|e| Error::msg(format!("Cannot open the installer: {e}")))?;
@@ -270,10 +272,16 @@ fn read_installer(installer: &Path, _dir: &Path) -> Result<(String, String)> {
         entry.read_to_string(&mut profile_text)?;
     }
 
-    let profile: InstallProfile = serde_json::from_str(&profile_text)?;
-    if profile.spec != 1 {
+    // Forge's 1.12.2 builds from 14.23.5.2851 on ship this same layout under
+    // `spec` 0, with no processors: the jar is ready-made in `maven/`. Older
+    // ones nest everything under `install`/`versionInfo` and have no `json`.
+    let profile: InstallProfile = match serde_json::from_str(&profile_text) {
+        Ok(p) => p,
+        Err(_) => return legacy_installer(&profile_text),
+    };
+    if profile.spec > 1 {
         return Err(Error::msg(format!(
-            "This build uses installer format {} — only Forge 1.13 and newer, and every NeoForge, are supported.",
+            "This build uses installer format {}, which this launcher does not know yet.",
             profile.spec
         )));
     }
@@ -290,6 +298,51 @@ fn read_installer(installer: &Path, _dir: &Path) -> Result<(String, String)> {
     Ok((profile_text, version_text))
 }
 
+/// The installer Forge shipped before 1.12.2-14.23.5.2851 (verified against
+/// 1.7.10-10.13.4.1614, 1.8.9-11.15.1.2318 and 1.12.2-14.23.5.2847): one JSON
+/// with `install` (where the universal jar sits) and `versionInfo` (the
+/// version profile). It is rewritten into the modern pair so the rest of the
+/// module sees one shape.
+///
+/// Two library details need fixing on the way: the Forge entry names a URL
+/// that serves no such jar (it is the universal jar inside the installer), and
+/// the libraries with no URL at all are Mojang's, which the old launcher
+/// fetched from `libraries.minecraft.net` by default.
+fn legacy_installer(profile_text: &str) -> Result<(String, String)> {
+    let old = || Error::msg("This Forge installer is in a format this launcher does not recognise.");
+    let mut root: serde_json::Value = serde_json::from_str(profile_text)?;
+    let install = root.get("install").ok_or_else(old)?;
+    let coordinate = install.get("path").and_then(|v| v.as_str()).ok_or_else(old)?.to_string();
+    let file_path = install.get("filePath").and_then(|v| v.as_str()).ok_or_else(old)?.to_string();
+    let minecraft = install.get("minecraft").and_then(|v| v.as_str()).map(str::to_string);
+
+    let mut version = root.get_mut("versionInfo").map(serde_json::Value::take).ok_or_else(old)?;
+    if version.get("inheritsFrom").is_none() {
+        if let Some(mc) = minecraft {
+            version["inheritsFrom"] = mc.into();
+        }
+    }
+    if let Some(libs) = version.get_mut("libraries").and_then(|l| l.as_array_mut()) {
+        for lib in libs {
+            let Some(obj) = lib.as_object_mut() else { continue };
+            if obj.get("name").and_then(|n| n.as_str()) == Some(coordinate.as_str()) {
+                obj.remove("url");
+            } else if obj.get("url").and_then(|u| u.as_str()).map_or(true, str::is_empty) {
+                obj.insert("url".into(), "https://libraries.minecraft.net/".into());
+            }
+        }
+    }
+
+    let profile = serde_json::json!({
+        "spec": 0,
+        "version": version.get("id").cloned().unwrap_or_default(),
+        "json": "/version.json",
+        "path": coordinate,
+        "filePath": file_path,
+    });
+    Ok((profile.to_string(), version.to_string()))
+}
+
 // ------------------------------------------------------------------ patching
 
 #[derive(Deserialize)]
@@ -304,6 +357,10 @@ struct InstallProfile {
     /// A Maven coordinate the installer carries but no repository serves.
     #[serde(default)]
     path: Option<String>,
+    /// Legacy installers only: the entry at the jar's root that `path` names,
+    /// rather than a copy under `maven/`.
+    #[serde(default, rename = "filePath")]
+    file_path: Option<String>,
     #[serde(default)]
     libraries: Vec<mojang::Library>,
     #[serde(default)]
@@ -434,6 +491,22 @@ fn unpack_installer(installer: &Path, data_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Copy one named entry out of the installer to `out`, through a `.part` file.
+fn unpack_entry(installer: &Path, name: &str, out: &Path) -> Result<()> {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(installer)?)?;
+    let mut entry = zip
+        .by_name(name)
+        .map_err(|_| Error::msg(format!("The installer names {name} but does not contain it.")))?;
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut tmp = out.as_os_str().to_owned();
+    tmp.push(".part");
+    std::io::copy(&mut entry, &mut std::fs::File::create(&tmp)?)?;
+    std::fs::rename(&tmp, out)?;
+    Ok(())
+}
+
 /// Read the recipe back off disk. `profile` put it there.
 async fn install_profile(id: &str) -> Result<InstallProfile> {
     let text = tokio::fs::read_to_string(profile_dir(id).join(PROFILE_NAME)).await?;
@@ -459,16 +532,28 @@ fn patched_jar(profile: &InstallProfile) -> Result<Option<PathBuf>> {
 pub async fn tool_jobs(loader: Loader, mc: &str, version: &str) -> Result<Vec<Job>> {
     let id = profile_id(loader, mc, version);
     let profile = install_profile(&id).await?;
-    let Some(patched) = patched_jar(&profile)? else { return Ok(Vec::new()) };
-    if patched.is_file() {
+    // A `spec` 0 installer builds nothing; its jar only has to be unpacked.
+    let target = match patched_jar(&profile)? {
+        Some(patched) => Some(patched),
+        None => profile.path.as_deref().map(library_path).transpose()?,
+    };
+    let Some(target) = target else { return Ok(Vec::new()) };
+    if target.is_file() {
         return Ok(Vec::new());
     }
 
     let installer = installer_path(&id);
     let data_dir = profile_dir(&id).join("data");
-    tokio::task::spawn_blocking(move || unpack_installer(&installer, &data_dir))
-        .await
-        .map_err(|e| Error::msg(e.to_string()))??;
+    let file_path = profile.file_path.clone();
+    tokio::task::spawn_blocking(move || {
+        unpack_installer(&installer, &data_dir)?;
+        match file_path {
+            Some(name) => unpack_entry(&installer, &name, &target),
+            None => Ok(()),
+        }
+    })
+    .await
+    .map_err(|e| Error::msg(e.to_string()))??;
 
     // The tools are libraries like any other and go through the same verified
     // downloader as the rest of the install.

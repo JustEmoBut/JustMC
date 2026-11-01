@@ -17,9 +17,29 @@ fn java() -> &'static std::path::Path {
     std::path::Path::new(if cfg!(windows) { "java.exe" } else { "java" })
 }
 
+/// One scratch root for the whole binary. The variable is process-wide and the
+/// tests run in parallel, so a per-test value let one test's install land in
+/// another's tree; set once, every test reads the same answer, and none ever
+/// touches the user's real data. Kept between runs as a download cache.
+fn home() -> std::path::PathBuf {
+    static HOME: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    HOME.get_or_init(|| {
+        let home = std::env::temp_dir().join("jl-live-metadata");
+        std::env::set_var("JUSTLAUNCHER_HOME", &home);
+        home
+    })
+    .clone()
+}
+
+/// Held by every test that installs into the shared store. Two installs that
+/// fetch the same library at once race on its `.part` file, so they take turns.
+static INSTALLING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 fn instance(mc_version: &str, loader: Loader, loader_version: &str) -> Instance {
+    home();
     Instance {
-        id: "live-test".into(),
+        // Distinct per version, so parallel tests do not share one game dir.
+        id: format!("live-{mc_version}-{loader_version}"),
         name: "Live Test".into(),
         mc_version: mc_version.into(),
         loader,
@@ -374,10 +394,10 @@ async fn an_srv_published_server_is_found_from_its_bare_host() {
 #[tokio::test]
 #[ignore = "network, and runs a JVM for several minutes"]
 async fn neoforge_installs_and_builds_a_launch_command() {
+    let _turn = INSTALLING.lock().await;
     use justlauncher_lib::{forge, install};
 
-    let home = std::env::temp_dir().join("jl-forge-live");
-    std::env::set_var("JUSTLAUNCHER_HOME", &home);
+    let home = home();
 
     let inst = instance("1.21.1", Loader::NeoForge, "21.1.248");
     inst.save().await.unwrap();
@@ -390,15 +410,17 @@ async fn neoforge_installs_and_builds_a_launch_command() {
     // libraries the recipe reads have to be on disk before it runs.
     let cp = install::classpath(&version, "1.21.1").expect("classpath");
     justlauncher_lib::download::run_quiet(cp.jobs).await.expect("libraries");
+    let patched = home
+        .join("shared/libraries/net/neoforged/neoforge/21.1.248/neoforge-21.1.248-client.jar");
+    let built_before = patched.is_file();
     let jobs = forge::tool_jobs(Loader::NeoForge, "1.21.1", "21.1.248").await.expect("tools");
-    assert!(!jobs.is_empty(), "the recipe needs tools and named none");
+    // Only a fresh tree has tools to fetch: once the jar is built there are none.
+    assert!(built_before || !jobs.is_empty(), "the recipe needs tools and named none");
     justlauncher_lib::download::run_quiet(jobs).await.expect("tool download");
     forge::patch(Loader::NeoForge, "1.21.1", "21.1.248", java()).await.expect("patch");
 
     // The patched client jar is the whole point: nothing else proves the
     // processors ran and produced something.
-    let patched = home
-        .join("shared/libraries/net/neoforged/neoforge/21.1.248/neoforge-21.1.248-client.jar");
     assert!(patched.is_file(), "no patched jar at {}", patched.display());
     assert!(patched.metadata().unwrap().len() > 1_000_000, "patched jar is suspiciously small");
 
@@ -426,10 +448,10 @@ async fn neoforge_installs_and_builds_a_launch_command() {
 #[tokio::test]
 #[ignore = "network, and runs a JVM for several minutes"]
 async fn forge_installs_and_puts_its_patched_jar_on_the_classpath() {
+    let _turn = INSTALLING.lock().await;
     use justlauncher_lib::{forge, install};
 
-    let home = std::env::temp_dir().join("jl-forge-live-mf");
-    std::env::set_var("JUSTLAUNCHER_HOME", &home);
+    let home = home();
 
     let inst = instance("1.21.1", Loader::Forge, "52.1.16");
     inst.save().await.unwrap();
@@ -465,6 +487,58 @@ async fn forge_installs_and_puts_its_patched_jar_on_the_classpath() {
     let leftover: Vec<_> = args.iter().filter(|a| a.contains("${")).collect();
     assert!(leftover.is_empty(), "unexpanded placeholders: {leftover:?}");
     assert!(args.iter().any(|a| a == "forge_client"), "the FML launch target is missing");
+}
+
+/// Forge before 1.13, in both of the installer formats it shipped: the
+/// `install`/`versionInfo` one (1.7.10, 1.8.9, 1.12.2 up to 14.23.5.2847) and
+/// `spec` 0 (1.12.2 from 14.23.5.2851). Neither runs processors; the Forge jar
+/// on the classpath comes out of the installer, and every other library has to
+/// be downloadable from the URL the conversion gives it.
+#[tokio::test]
+#[ignore = "network"]
+async fn legacy_forge_installs_from_both_old_installer_formats() {
+    let _turn = INSTALLING.lock().await;
+    for (mc, build, tweaker) in [
+        ("1.7.10", "10.13.4.1614-1.7.10", "cpw.mods.fml.common.launcher.FMLTweaker"),
+        ("1.8.9", "11.15.1.2318-1.8.9", "net.minecraftforge.fml.common.launcher.FMLTweaker"),
+        ("1.12.2", "14.23.5.2847", "net.minecraftforge.fml.common.launcher.FMLTweaker"),
+        ("1.12.2", "14.23.5.2860", "net.minecraftforge.fml.common.launcher.FMLTweaker"),
+    ] {
+        legacy_forge(mc, build, tweaker).await;
+    }
+}
+
+async fn legacy_forge(mc: &str, build: &str, tweaker: &str) {
+    use justlauncher_lib::{forge, install};
+
+    let inst = instance(mc, Loader::Forge, build);
+    inst.save().await.unwrap();
+
+    let version = resolve(&inst).await.expect("resolve");
+    assert_eq!(version.main_class, "net.minecraft.launchwrapper.Launch", "{mc}-{build}");
+
+    let cp = install::classpath(&version, mc).expect("classpath");
+    let jar = home().join(format!(
+        "shared/libraries/net/minecraftforge/forge/{mc}-{build}/forge-{mc}-{build}.jar"
+    ));
+    assert!(cp.jars.contains(&jar), "{mc}-{build}: the Forge jar is not on the classpath");
+    assert!(!cp.jobs.iter().any(|j| j.path == jar), "{mc}-{build}: the Forge jar is downloaded");
+    justlauncher_lib::download::run_quiet(cp.jobs).await.expect("libraries");
+
+    let jobs = forge::tool_jobs(Loader::Forge, mc, build).await.expect("tools");
+    justlauncher_lib::download::run_quiet(jobs).await.expect("tool download");
+    assert!(jar.is_file(), "{mc}-{build}: the installer's Forge jar was not unpacked");
+    // The client jar is `install::install`'s download, not the classpath's.
+    for path in cp.jars.iter().filter(|p| p.starts_with(home().join("shared/libraries"))) {
+        assert!(path.is_file(), "{mc}-{build}: missing {}", path.display());
+    }
+
+    let account = offline_account("TestPlayer").unwrap();
+    let args = build_command(&version, &inst, &account, &cp.jars, &inst.natives_dir(), None).unwrap();
+    let leftover: Vec<_> = args.iter().filter(|a| a.contains("${")).collect();
+    assert!(leftover.is_empty(), "{mc}-{build}: unexpanded placeholders: {leftover:?}");
+    // The flat argument string is the child's, which is what carries the tweaker.
+    assert!(args.iter().any(|a| a == tweaker), "{mc}-{build}: {args:?}");
 }
 
 /// Every loader must have builds for the Minecraft version the launcher offers
